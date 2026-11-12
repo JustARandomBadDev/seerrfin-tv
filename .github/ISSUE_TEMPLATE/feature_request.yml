@@ -1,0 +1,23 @@
+name: Feature request
+description: Propose a bounded roadmap task
+title: "feat: "
+labels: [enhancement]
+body:
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Expected user behavior
+      description: State the user-visible outcome, not just the implementation idea.
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      placeholder: "- [ ] D-pad works\n- [ ] Errors are handled\n- [ ] Tests pass"
+    validations:
+      required: true
+  - type: textarea
+    id: risks
+    attributes:
+      label: Compatibility, API or security risks

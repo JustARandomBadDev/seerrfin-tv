@@ -1,0 +1,40 @@
+# Gradle and Kotlin
+.gradle/
+.kotlin/
+**/build/
+!gradle/wrapper/gradle-wrapper.jar
+
+# Local Android SDK / IDE
+/local.properties
+.idea/
+*.iml
+.externalNativeBuild/
+.cxx/
+captures/
+
+# Secrets and credentials
+.env
+.env.*
+!.env.example
+*.jks
+*.keystore
+*.p12
+*.pfx
+*.pem
+*.key
+*secrets*.properties
+*credentials*.json
+
+# Local generated and diagnostic files
+*.log
+*.hprof
+*.heapdump
+*.apk
+*.aab
+reports/local/
+
+# OS and editor
+.DS_Store
+Thumbs.db
+.vscode/*
+!.vscode/extensions.json
