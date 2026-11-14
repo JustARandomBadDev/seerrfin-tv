@@ -2,10 +2,10 @@
 
 ## Current status
 
-**P00.5 configured locally, remote validation pending** — the Android CI
-workflow is ready under `.github/workflows`, but cannot run on GitHub until it
-is committed and pushed. This session intentionally created neither commit nor
-push.
+**P00.5 CI correction prepared locally, remote validation pending** — the first
+remote run reached Android SDK setup but failed because it requested the
+nonexistent `platforms;android-37` package. The workflow now requests
+`platforms;android-37.0`; no commit or push was created in this session.
 
 ## Completed tasks
 
@@ -21,15 +21,16 @@ push.
 
 ## P00.5 verification (2026-11-14)
 
-- The workflow uses JDK 17 and explicitly provisions Android API 37 and Build
+- The workflow uses JDK 17 and explicitly provisions Android API 37.0 and Build
   Tools 36.1.0 before running the checked-in Gradle Wrapper.
 - CI runs `:app:testDebugUnitTest` and `:app:assembleDebug`, then uploads the
   exact debug APK with a missing-artifact failure guard.
 - Workflow permissions are limited to read-only repository contents; concurrent
   runs on the same ref cancel obsolete work.
 - Third-party actions are pinned to verified immutable commit SHAs.
-- No remote `Android CI` workflow or run is visible yet because the workflow
-  has not been committed or pushed.
+- The first remote `Android CI` run failed while resolving the invalid
+  `platforms;android-37` package. The corrected package identifier awaits a new
+  remote run; accepted SDK licenses will no longer be printed in its logs.
 
 ## Verified results (2026-11-14)
 
