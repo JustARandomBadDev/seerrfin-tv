@@ -8,9 +8,7 @@ Each task has a concrete completion condition. Do not advance to the next milest
 - [x] P00.2 Select compatible Kotlin, Gradle, AGP, JDK, SDK, Compose for TV, Media3 and Jellyfin SDK versions. Record in decisions.
 - [x] P00.3 Create a minimal native Android TV Gradle project and remote-focusable Compose screen.
 - [x] P00.4 Compile with checked-in Gradle wrapper, install on emulator or authorized physical Android TV.
-- [ ] P00.5 Activate GitHub Actions Android CI after P00.4 succeeds. The
-  workflow is prepared locally; check this task after its first successful
-  remote run.
+- [x] P00.5 Activate GitHub Actions Android CI after P00.4 succeeds.
 
 **Exit:** reproducible `assembleDebug`, app starts from TV launcher, D-pad navigation works on at least one device.
 

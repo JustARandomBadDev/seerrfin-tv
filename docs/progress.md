@@ -2,10 +2,9 @@
 
 ## Current status
 
-**P00.5 CI correction prepared locally, remote validation pending** — the first
-remote run reached Android SDK setup but failed because it requested the
-nonexistent `platforms;android-37` package. The workflow now requests
-`platforms;android-37.0`; no commit or push was created in this session.
+**P00.5 complete** — GitHub Actions run `43636555495` completed successfully at
+commit `ea8bbe445e65fef4ca291ade6cdb1e4ed0e2e4d9`; unit tests, `assembleDebug`,
+and debug APK publication all succeeded.
 
 ## Completed tasks
 
@@ -18,6 +17,8 @@ nonexistent `platforms;android-37` package. The workflow now requests
   Compose for TV bootstrap screen, launcher manifest, and focused unit test.
 - `P00.4` — reproducible wrapper build, installation and launch on the physical
   TV, plus visual D-pad, activation, and Back validation.
+- `P00.5` — active Android CI with a successful unit-test and debug-build run,
+  plus publication of the debug APK artifact.
 
 ## P00.5 verification (2026-11-14)
 
@@ -28,9 +29,13 @@ nonexistent `platforms;android-37` package. The workflow now requests
 - Workflow permissions are limited to read-only repository contents; concurrent
   runs on the same ref cancel obsolete work.
 - Third-party actions are pinned to verified immutable commit SHAs.
-- The first remote `Android CI` run failed while resolving the invalid
-  `platforms;android-37` package. The corrected package identifier awaits a new
-  remote run; accepted SDK licenses will no longer be printed in its logs.
+- Run `43636555495` completed with conclusion `success` at commit
+  `ea8bbe445e65fef4ca291ade6cdb1e4ed0e2e4d9`; every job step succeeded.
+- Artifact `seerrfin-tv-debug` was published and is not expired.
+- Two non-blocking notices remain: Gradle 9.5.0 is reported as out of date, and
+  the `ubuntu-latest` label is scheduled to migrate to Ubuntu 26 beginning
+  October 19, 2026. Neither notice affected this run; review the Gradle pin and
+  runner image during future dependency or CI maintenance.
 
 ## Verified results (2026-11-14)
 
@@ -74,7 +79,5 @@ will be checked against the target deployment.
 
 ## Next task
 
-Commit and push `.github/workflows/android-ci.yml`, then observe one successful
-`Android CI` run. Only after that result should P00.5 be checked and P01 begin.
-P01 has not started; its local build and physical-TV prerequisites are
-satisfied.
+P00 is complete. P01 has not started; its local build, CI, and physical-TV
+prerequisites are satisfied.
