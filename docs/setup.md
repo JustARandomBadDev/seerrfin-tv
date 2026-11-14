@@ -35,7 +35,7 @@ that path is machine-specific.
 
 ## Android SDK
 
-The P00.3 project will use:
+The project uses:
 
 - `compileSdk = 37`
 - `targetSdk = 36`
@@ -44,7 +44,7 @@ The P00.3 project will use:
 
 AGP 9.3 defaults to Build Tools 36.0.0. Version 36.1.0 is already installed and
 meets that minimum, so it is pinned to avoid downloading a redundant 36.0.0
-package. P00.3 must validate the choice with the first real build.
+package. The choice was validated by the first real build.
 
 Verified local host inventory:
 
@@ -52,12 +52,12 @@ Verified local host inventory:
 - Platform-Tools 37.0.1
 - Command-line Tools 23.0
 
-Platforms 35, 36, and 36.1 are installed. Install platform API 37 before the
-first build, using Android Studio SDK Manager. The existing command-line tool
-can perform the same targeted installation if needed:
+Platforms 35, 36, 36.1, and 37.0 are installed. On a new workstation, Android
+CLI can install only the required platform:
 
 ```bash
-"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-37"
+"$ANDROID_HOME/cmdline-tools/latest/bin/android" \
+  --sdk="$ANDROID_HOME" sdk install "platforms/android-37.0"
 ```
 
 Do not reinstall working SDK components. The emulator and an Android TV AVD
@@ -66,15 +66,15 @@ target.
 
 ## Gradle project
 
-Do not install a global Gradle. P00.3 will create and check in Gradle Wrapper
-9.5.0 plus a pinned version catalog. Run wrapper commands with JDK 17:
+Do not install a global Gradle. The repository contains Gradle Wrapper 9.5.0
+and a pinned version catalog. Run wrapper commands with JDK 17:
 
 ```bash
 JAVA_HOME=/usr/lib/jvm/java-17-openjdk ./gradlew --version
 JAVA_HOME=/usr/lib/jvm/java-17-openjdk ./gradlew assembleDebug
 ```
 
-These commands become applicable only after P00.3 creates the project.
+The debug APK is generated at `app/build/outputs/apk/debug/app-debug.apk`.
 
 ## Codex, Superpowers, and Context7
 
@@ -106,6 +106,9 @@ When device testing is explicitly authorized:
 
 ```bash
 adb devices -l
+adb -s SERIAL install -r app/build/outputs/apk/debug/app-debug.apk
+adb -s SERIAL shell am start -n \
+  io.github.justarandombaddev.seerrfintv/.MainActivity
 ```
 
 Do not guess addresses, pair devices, install, launch, navigate, or capture

@@ -1,7 +1,7 @@
 # Architecture decisions
 
-Decisions accepted for bootstrap on 2026-11-14. Dependency versions will be
-pinned in `gradle/libs.versions.toml` when P00.3 creates the project.
+Decisions accepted for bootstrap on 2026-11-14. Dependency versions are pinned
+in `gradle/libs.versions.toml`.
 
 ## Technical baseline
 
@@ -20,6 +20,7 @@ pinned in `gradle/libs.versions.toml` when P00.3 creates the project.
 | Dependency injection | Manual constructor injection through an app container | Accepted |
 | Persistence | DataStore for non-secret preferences; no Room initially | Accepted |
 | Test device | Physical Android TV API 34; emulator optional | Accepted |
+| App identity | `Seerrfin TV`, namespace/application ID `io.github.justarandombaddev.seerrfintv` | Accepted |
 
 Only dependencies required by the first project are pinned here. Additional
 AndroidX artifacts such as Navigation or DataStore receive a version when their
@@ -57,7 +58,7 @@ TLS/media edge cases while covering the intended TV generation.
 
 **Implication.** Platform API 37 must be installed before the first build. Pin
 the already installed Build Tools 36.1.0, which is newer than AGP 9.3's 36.0.0
-minimum/default, to avoid downloading a redundant copy. P00.3 must prove this
+minimum/default, to avoid downloading a redundant copy. P00.3 proved this
 combination with dependency resolution and a build. Revisit `targetSdk` and
 `minSdk` using real device and distribution needs.
 
@@ -152,6 +153,5 @@ background playback becomes a requirement.
 
 ## Pending decisions
 
-- Final application name, namespace, and branding before P00.3 creates files.
 - Project license before public distribution.
 - Exact Seerr login mode supported by the target deployment in P04.1.

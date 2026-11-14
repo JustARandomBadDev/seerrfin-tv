@@ -2,8 +2,8 @@
 
 ## Current status
 
-**P00.2 complete** — the bootstrap stack and MVP architecture are selected and
-recorded. No Android project has been generated yet.
+**P00.3 complete** — the minimal Android TV project builds reproducibly and its
+focusable bootstrap screen was installed and exercised on the physical TV.
 
 ## Completed tasks
 
@@ -12,6 +12,8 @@ recorded. No Android project has been generated yet.
 - `P00.2` — compatible build, SDK, UI, playback, Jellyfin, networking, storage,
   and test decisions were recorded in `docs/decisions.md` and
   `docs/architecture.md`.
+- `P00.3` — one-module Android TV project, Gradle Wrapper, version catalog,
+  Compose for TV bootstrap screen, launcher manifest, and focused unit test.
 
 ## Verified results (2026-11-14)
 
@@ -28,14 +30,24 @@ recorded. No Android project has been generated yet.
   foreground MediaSession; background playback remains outside the MVP.
 - Jellyfin SDK 1.9.4 declares Jellyfin 12.0 minimum and 12.4 recommended,
   matching the target server version 12.4.
-- Android platforms 35, 36, and 36.1 are installed; API 37 is not installed.
-- No Gradle wrapper, Android source, AVD, deployment, or build was created.
-
-## Prerequisites for P00.3
-
-- Choose the final application name and Android namespace.
-- Install Android platform API 37 without reinstalling working SDK packages.
-- Ensure Gradle runs with JDK 17 in the terminal and Android Studio.
+- Android platforms 35, 36, 36.1, and 37.0 are installed.
+- Gradle Wrapper 9.5.0 ran with JDK 17.0.21 from
+  `/usr/lib/jvm/java-17-openjdk`.
+- `./gradlew testDebugUnitTest` passed: 1 test, 0 failures.
+- `./gradlew assembleDebug` passed. The APK is
+  `app/build/outputs/apk/debug/app-debug.apk`.
+- APK inspection confirmed `compileSdk 37`, `targetSdk 36`, `minSdk 26`, the
+  no-touch declaration, Leanback launcher activity, banner, and icon.
+- The APK installed successfully on the authorized Android TV API 34 using one
+  explicitly selected ADB transport. Cold launch succeeded and the process
+  remained active. A launch through the Leanback launcher category also
+  resolved to `MainActivity`.
+- Captures confirmed initial focus and D-pad transitions Right, Down, Up, and
+  Left across all three actions. D-pad Center activated `Focus 3` and displayed
+  its confirmation. Back returned to the TV home activity.
+- Filtered application logcat contained no fatal exception during validation.
+- A dark-theme contrast issue found on-device was corrected and visually
+  rechecked.
 
 The project license can remain pending until before public distribution. The
 exact user-scoped Seerr login mode is intentionally deferred to P04.1, where it
@@ -43,6 +55,6 @@ will be checked against the target deployment.
 
 ## Next task
 
-`P00.3` — create one minimal native Android TV Gradle project using the accepted
-version catalog and a remote-focusable Compose for TV screen. Do not start
-P00.4 device installation or CI activation as part of P00.3.
+`P00.4` remains the next formal roadmap item. Its checkbox and P00.5 CI
+activation remain untouched; this run used build/install/device checks only as
+the explicitly requested acceptance evidence for P00.3.
