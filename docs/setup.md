@@ -117,6 +117,7 @@ screens without the corresponding authorization.
 ## Git and CI
 
 The repository uses an HTTPS origin and `git ls-remote origin HEAD` has been
-verified. Do not activate Android CI until P00.4 produces a reproducible local
-build. `templates/android-ci.yml` remains outside `.github/workflows` until
-then.
+verified. The Android CI workflow is stored in
+`.github/workflows/android-ci.yml`. Pushes to `main` and pull requests run the
+focused unit tests and build the debug APK with JDK 17, Android API 37, and
+Build Tools 36.1.0. The APK is uploaded as the `seerrfin-tv-debug` artifact.

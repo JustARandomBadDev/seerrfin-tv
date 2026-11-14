@@ -2,8 +2,10 @@
 
 ## Current status
 
-**P00.4 complete** — the checked-in Gradle Wrapper builds the debug APK, which
-was installed, launched, and validated on the authorized physical Android TV.
+**P00.5 configured locally, remote validation pending** — the Android CI
+workflow is ready under `.github/workflows`, but cannot run on GitHub until it
+is committed and pushed. This session intentionally created neither commit nor
+push.
 
 ## Completed tasks
 
@@ -16,6 +18,18 @@ was installed, launched, and validated on the authorized physical Android TV.
   Compose for TV bootstrap screen, launcher manifest, and focused unit test.
 - `P00.4` — reproducible wrapper build, installation and launch on the physical
   TV, plus visual D-pad, activation, and Back validation.
+
+## P00.5 verification (2026-11-14)
+
+- The workflow uses JDK 17 and explicitly provisions Android API 37 and Build
+  Tools 36.1.0 before running the checked-in Gradle Wrapper.
+- CI runs `:app:testDebugUnitTest` and `:app:assembleDebug`, then uploads the
+  exact debug APK with a missing-artifact failure guard.
+- Workflow permissions are limited to read-only repository contents; concurrent
+  runs on the same ref cancel obsolete work.
+- Third-party actions are pinned to verified immutable commit SHAs.
+- No remote `Android CI` workflow or run is visible yet because the workflow
+  has not been committed or pushed.
 
 ## Verified results (2026-11-14)
 
@@ -59,5 +73,7 @@ will be checked against the target deployment.
 
 ## Next task
 
-`P00.5` — activate Android CI using the already verified wrapper build. P01 has
-not started; its local build and physical-TV prerequisites are satisfied.
+Commit and push `.github/workflows/android-ci.yml`, then observe one successful
+`Android CI` run. Only after that result should P00.5 be checked and P01 begin.
+P01 has not started; its local build and physical-TV prerequisites are
+satisfied.
