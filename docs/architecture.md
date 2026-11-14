@@ -1,52 +1,138 @@
-# Architecture (initial proposal)
+# Architecture
 
 ## Scope
 
-A **native Android TV** Kotlin app, without a new mandatory backend.
+Seerrfin TV is a native Kotlin Android TV application. Jellyfin is required;
+Seerr is an optional provider after the initial Jellyfin MVP. There is no extra
+backend.
 
+```text
+Compose for TV screens -> ViewModels -> app domain models
+                                   |-> UnifiedCatalogRepository
+                                   |     |-> JellyfinRepository -> official SDK
+                                   |     `-> SeerrRepository ----> REST client
+                                   `-> PlaybackCoordinator ------> Media3 + Jellyfin
+
+AppContainer -> repositories, clients, session stores, playback dependencies
 ```
-Android TV UI (Compose for TV)
-  |-- ViewModels / state / D-pad navigation
-  |-- Unified catalog (merge, availability, requests)
-  |     |-- Jellyfin repository --> Official Kotlin SDK --> Jellyfin server
-  |     `-- Seerr repository ----> Typed REST client -----> Seerr server
-  |-- Playback coordinator --> Media3 / ExoPlayer + Jellyfin playback APIs
-  `-- Local settings / cache (DataStore; Room only if justified)
+
+## Gradle and package structure
+
+Start with one `app` Gradle module. Split only after measured build-time,
+ownership, or reuse pressure. Suggested packages inside the application
+namespace:
+
+```text
+app/                 Application, AppContainer, navigation root
+domain/model/        app-owned media, identity, request and playback models
+domain/repository/   repository contracts
+data/jellyfin/       SDK adapter, authentication, DTO-to-domain mapping
+data/seerr/          REST client, cookie session, DTO-to-domain mapping
+data/catalog/        unified catalogue and reconciliation
+data/session/        tokens, encrypted sessions, preferences
+playback/            PlaybackCoordinator and Media3 controller
+feature/home/        screen, ViewModel, UI state
+feature/details/     screen, ViewModel, UI state
+feature/search/      screen, ViewModel, UI state
+feature/player/      player screen and remote controls
+ui/focus/            shared D-pad focus helpers
 ```
 
-## Initial principles
+Dependencies are wired manually through `AppContainer` and constructors. Do
+not introduce Hilt until manual wiring creates concrete maintenance pain.
 
-- Start with a single `app` Gradle module and clear Kotlin packages. Add modules when scale justifies them.
-- External API data stays behind repositories.
-- Convert Jellyfin and Seerr responses into app-owned domain models.
-- Prefer stable IDs such as TMDb IDs for cross-system matching; never merge solely by title.
-- Model media states distinctly: available, playable, resumable, requested, pending, unavailable, unknown.
-- Distinguish missing data from explicit absence; asynchronous refresh must not incorrectly overwrite known state.
-- Keep authentication separate for Jellyfin and Seerr; do not assume their login endpoints or tokens are interchangeable.
-- Jellyfin required, Seerr optional after MVP 3.
-- Navigation and accessibility start with D-pad focus, long labels, Back and playback remote keys.
+## UI and state
 
-## Authentication and secrets
+- Compose for TV components are the default UI primitives.
+- A ViewModel exposes one immutable `StateFlow<UiState>` per screen and accepts
+  explicit UI events; it does not expose SDK or HTTP DTOs.
+- Navigation preserves focused item identity and list position. Use focus
+  groups, explicit initial focus, focus restoration, and predictable Back
+  behavior. Every screen must be usable without touch.
+- The Media3 player receives D-pad and media key events explicitly; player
+  ownership follows the player screen lifecycle rather than a ViewModel.
 
-- Use only authenticated user-level flows supported by each server/version.
-- Never bundle privileged server API keys into the APK or repository.
-- Investigate safe local storage and token lifecycle in Phase 1 / Phase 4; document tradeoffs.
-- Avoid logging credentials and server responses containing personal data.
+## Provider boundaries
 
-## Playback risks to validate early
+### Jellyfin
 
-- Direct play vs remux vs transcode selection.
-- Device-supported codecs, containers, subtitles and audio tracks.
-- Progress, stop and resume reporting to Jellyfin.
-- Robust handling of network interruptions.
-- Validate on a real TV or Android TV emulator, not just compilation.
+Depend on `org.jellyfin.sdk:jellyfin-core` only. It provides the official API,
+models, discovery, WebSocket support, and OkHttp transport transitively. A
+`JellyfinRepository` owns API instances and maps SDK responses into domain
+models. Jellyfin and Seerr sessions remain independent.
 
-## Documentation sources
+### Seerr
 
-- Jellyfin Kotlin SDK: https://github.com/jellyfin/jellyfin-sdk-kotlin
-- Seerr main repository: https://github.com/seerr-team/seerr
-- Android TV: https://developer.android.com/training/tv
-- AndroidX Media3: https://developer.android.com/media/media3
-- Context7 (optional for version-specific docs): https://context7.com/docs/installation
+Use a small typed OkHttp + kotlinx.serialization client for only the documented
+MVP endpoints. Keep the `/api/v1` contract at the client boundary. Prefer a
+user-scoped cookie session using a login method enabled by the deployment;
+never ship the administrator `X-Api-Key`. Verify the authenticated user and
+permissions before exposing request actions.
 
-Versions should be chosen using current official documentation during bootstrap and recorded in `docs/decisions.md`.
+Do not add an OpenAPI generator initially. Reconsider only if handwritten
+endpoint drift or model volume becomes costly.
+
+## Unified catalogue
+
+`UnifiedCatalogRepository` combines provider results without hiding their
+origin. Use `(media type, TMDb ID)` as the primary cross-provider identity and
+other stable external IDs such as TVDb or IMDb only as explicit fallbacks.
+Never merge solely by title.
+
+Keep source references and states separate:
+
+- Jellyfin: available, playable, resumable, unknown.
+- Seerr: not requested, pending, approved, declined, unavailable, unknown.
+- Unified action: Play, Resume, Request, or status/follow-up.
+
+Missing data is not explicit absence. Refreshes must not overwrite a known
+state with an incomplete response.
+
+## Playback
+
+`PlaybackCoordinator` asks Jellyfin for playback information, supplies declared
+device capabilities, and converts the selected server-provided source into a
+Media3 item. Use the same Media3 1.11.1 version for ExoPlayer, HLS, Compose UI,
+and session modules. Prefer direct play when supported, then server-approved
+remux or transcode. Do not guess codec support, construct undocumented stream
+URLs, or assume a container is directly playable.
+
+The Media3 layer owns play/pause/seek, tracks, errors, and player lifecycle.
+One foreground `MediaSession` exposes the active player to Android and handles
+platform/media keys; Compose for TV owns D-pad navigation, focus, and visible
+controls. Player and session end with the player screen. Background playback
+and `MediaSessionService` are outside the MVP. The Jellyfin repository owns
+progress, stop, and resume reporting. Validate containers, codecs, HDR, audio,
+and subtitles on the physical TV in P02/P06.
+
+## Sessions, storage, and errors
+
+- Store non-secret settings and server choices in DataStore.
+- Hide Jellyfin tokens and Seerr cookie material behind `SessionStore`; persist
+  only Android-Keystore-encrypted ciphertext.
+- Do not add Room until offline queries or measured cache needs justify it.
+- Apply bounded timeouts and cancellation to network calls.
+- Map network, authentication, permission, server, parsing, and playback
+  failures to app-owned errors with retry guidance.
+- Never log secrets, private server addresses, or personal library payloads.
+
+## Test strategy
+
+- Unit tests: mappings, identity/deduplication, repositories, ViewModels,
+  session behavior, and playback-source decisions using fakes.
+- Coroutine tests: deterministic dispatchers and Flow emissions.
+- Compose tests: loading/error/content states, focus entry/restoration, Back.
+- Integration tests: HTTP fixtures for Jellyfin/Seerr adapters; no private
+  credentials in fixtures.
+- Device validation: authorized physical TV for D-pad, remote keys, launcher,
+  focus recovery, and representative playback. Emulator use is optional.
+
+## Risks kept explicit
+
+- Jellyfin server/SDK version coupling and playback capability negotiation.
+- Seerr deployment-specific login options, cookie lifecycle, and permissions.
+- Cross-provider identifiers that are absent or inconsistent.
+- TV codec, subtitle, HDR, and audio differences that compilation cannot prove.
+- Focus dead ends and lost focus after asynchronous row updates.
+
+Version choices and their rationale are recorded in `docs/decisions.md`.

@@ -2,28 +2,47 @@
 
 ## Current status
 
-**Not started** — this repository is a planning and bootstrap kit, not a built Android application.
+**P00.2 complete** — the bootstrap stack and MVP architecture are selected and
+recorded. No Android project has been generated yet.
 
-## Active task
+## Completed tasks
 
-`P00.1` — local environment audit (see `prompts/00-audit-setup.md`).
+- `P00.1` — environment audit: Git/GitHub, Codex, Superpowers, Context7,
+  Android SDK, JDK, and physical TV capability were verified as documented.
+- `P00.2` — compatible build, SDK, UI, playback, Jellyfin, networking, storage,
+  and test decisions were recorded in `docs/decisions.md` and
+  `docs/architecture.md`.
 
-## Verified results
+## Verified results (2026-11-14)
 
-None. No machine, TV, MCP, build or server access has been verified by this kit's author.
+- HTTPS origin and `git ls-remote --exit-code origin HEAD` succeed.
+- JDK 17.0.21 runs from `/usr/lib/jvm/java-17-openjdk`.
+- The current Codex shell still resolves SDKMAN Java 24 unless JDK 17 is
+  selected explicitly; Gradle commands must use the setup documented here.
+- Context7 MCP returned current Android documentation for AGP built-in Kotlin,
+  SDK levels, Compose for TV focus, and Media3 TV input.
+- AGP 9.3.3, Gradle 9.5.0, Compose for TV 1.1.0, Media3 1.11.1,
+  Jellyfin SDK 1.9.4, coroutines 1.11.0, serialization 1.11.0, and OkHttp
+  5.5.1 artifacts are available from their official repositories.
+- Media3's initial module set covers ExoPlayer, HLS, Compose UI, and a
+  foreground MediaSession; background playback remains outside the MVP.
+- Jellyfin SDK 1.9.4 declares Jellyfin 12.0 minimum and 12.4 recommended,
+  matching the target server version 12.4.
+- Android platforms 35, 36, and 36.1 are installed; API 37 is not installed.
+- No Gradle wrapper, Android source, AVD, deployment, or build was created.
 
-## Known decisions needed
+## Prerequisites for P00.3
 
-- Final application name, package namespace and app branding.
-- Project license.
-- Supported minimum Android TV API level.
-- Authentication flow for the target Seerr deployment.
-- Test TV model and available emulator.
+- Choose the final application name and Android namespace.
+- Install Android platform API 37 without reinstalling working SDK packages.
+- Ensure Gradle runs with JDK 17 in the terminal and Android Studio.
 
-## Last verification
-
-Not yet run. Fill in environment name, date, commands and outcomes only after executing them.
+The project license can remain pending until before public distribution. The
+exact user-scoped Seerr login mode is intentionally deferred to P04.1, where it
+will be checked against the target deployment.
 
 ## Next task
 
-Run P00.1 in Codex; fix failures with explicit authorization; proceed to P00.2 only when the audit has enough evidence.
+`P00.3` — create one minimal native Android TV Gradle project using the accepted
+version catalog and a remote-focusable Compose for TV screen. Do not start
+P00.4 device installation or CI activation as part of P00.3.

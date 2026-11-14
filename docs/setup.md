@@ -1,77 +1,119 @@
 # Local development setup (Arch Linux)
 
-## Install basic tools
+## Base tools
+
+Use pnpm/pnpx for Node-based tools:
 
 ```bash
-sudo pacman -S --needed git github-cli nodejs npm jdk17-openjdk android-tools
+sudo pacman -S --needed git github-cli nodejs pnpm jdk17-openjdk android-tools
 ```
 
-**JDK note:** JDK 17 is only a bootstrap candidate. Verify the Android Gradle Plugin's current Java requirement before choosing the final JDK. If Android Studio uses a bundled JBR, align terminal and CI versions accordingly.
-
-Install Android Studio from https://developer.android.com/studio and use SDK Manager to install compatible SDK platforms, command-line tools, build tools, platform tools and an Android TV emulator image. Do not add a global Gradle dependency; commit Gradle Wrapper after bootstrap.
-
-## Codex
+Codex is already installed. For a new machine, install it with pnpm rather
+than npm:
 
 ```bash
-npm install -g @openai/codex
+pnpm add --global @openai/codex
 codex --version
 codex login status
+```
+
+## JDK used by Gradle
+
+AGP 9.3 requires JDK 17. A shell may resolve another SDKMAN Java even when the
+Arch JDK 17 package is installed. Select JDK 17 per terminal without changing
+the global Java configuration:
+
+```bash
+export JAVA_HOME=/usr/lib/jvm/java-17-openjdk
+export PATH="$JAVA_HOME/bin:$PATH"
+java -version
+```
+
+In Android Studio, set **Gradle JDK** to the same JDK 17. CI must also provision
+JDK 17 explicitly. Do not commit an absolute `org.gradle.java.home`, because
+that path is machine-specific.
+
+## Android SDK
+
+The P00.3 project will use:
+
+- `compileSdk = 37`
+- `targetSdk = 36`
+- `minSdk = 26`
+- `buildToolsVersion = "36.1.0"`
+
+AGP 9.3 defaults to Build Tools 36.0.0. Version 36.1.0 is already installed and
+meets that minimum, so it is pinned to avoid downloading a redundant 36.0.0
+package. P00.3 must validate the choice with the first real build.
+
+Verified local host inventory:
+
+- Build Tools 35.0.0, 36.1.0, and 37.0.0
+- Platform-Tools 37.0.1
+- Command-line Tools 23.0
+
+Platforms 35, 36, and 36.1 are installed. Install platform API 37 before the
+first build, using Android Studio SDK Manager. The existing command-line tool
+can perform the same targeted installation if needed:
+
+```bash
+"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-37"
+```
+
+Do not reinstall working SDK components. The emulator and an Android TV AVD
+are optional; the authorized physical Android TV API 34 is the primary test
+target.
+
+## Gradle project
+
+Do not install a global Gradle. P00.3 will create and check in Gradle Wrapper
+9.5.0 plus a pinned version catalog. Run wrapper commands with JDK 17:
+
+```bash
+JAVA_HOME=/usr/lib/jvm/java-17-openjdk ./gradlew --version
+JAVA_HOME=/usr/lib/jvm/java-17-openjdk ./gradlew assembleDebug
+```
+
+These commands become applicable only after P00.3 creates the project.
+
+## Codex, Superpowers, and Context7
+
+Context7 is installed as a Codex plugin and its MCP lookup has been verified.
+Check integrations without printing secret-bearing configuration:
+
+```bash
 codex mcp list
+codex plugin list --marketplace context7-marketplace
 ```
 
-Avoid sharing raw `~/.codex/config.toml` or any MCP entry containing secrets.
-
-## Superpowers
-
-In the Codex CLI, open `/plugins`, find **Superpowers** and install it using the official plugin flow. Start a fresh Codex session afterward. Verify by making Codex locate and explicitly invoke a skill, not only by checking that files exist.
-
-Official: https://github.com/obra/superpowers
-
-## Context7
-
-Prefer the official authenticated setup:
+For an explicit Context7 CLI fallback, use pnpx:
 
 ```bash
-npx ctx7 setup --codex
+pnpx ctx7@latest library "Android Developers" "Compose for TV focus navigation"
+pnpx ctx7@latest docs /websites/developer_android "Compose for TV focus navigation"
 ```
 
-Or install as a Codex plugin:
+Superpowers is verified only when a skill is discovered and actually invoked,
+not merely when its directory exists.
+
+## Physical TV validation
+
+The physical TV is preferred for D-pad, Back, media key, focus, launcher, and
+playback validation. Device operations require explicit authorization for that
+operation. A disconnected TV does not block P00.2 or P00.3 project creation.
+
+When device testing is explicitly authorized:
 
 ```bash
-codex plugin marketplace add upstash/context7
-codex plugin add context7@context7-marketplace
-```
-
-Use **one** primary installation path to avoid duplicated configuration. Authentication can require completing an OAuth flow in a browser. Restart Codex after installation. Verify that a real documentation lookup succeeds, not just that `context7` is listed.
-
-Official: https://github.com/upstash/context7/blob/master/docs/clients/codex.mdx
-
-## Connect the TV
-
-On the TV, enable developer options and ADB debugging. For modern Android versions supporting Wi-Fi pairing, use the pairing IP/port and code shown by the TV:
-
-```bash
-adb pair TV_IP:PAIRING_PORT
-adb connect TV_IP:DEBUG_PORT
 adb devices -l
 ```
 
-Older TV devices may use legacy `adb connect TV_IP:5555` with a prompt to authorize debugging. The debug port isn't universally 5555; use the value shown by the device. Keep TV and computer on an accessible local network. Never enable ADB exposure to the public internet.
+Do not guess addresses, pair devices, install, launch, navigate, or capture
+screens without the corresponding authorization.
 
-To inspect device capabilities without touching the TV UI:
+## Git and CI
 
-```bash
-adb -s DEVICE_SERIAL shell getprop ro.build.characteristics
-adb -s DEVICE_SERIAL shell getprop ro.product.model
-adb -s DEVICE_SERIAL shell getprop ro.build.version.sdk
-```
-
-If your device has a different pairing procedure, follow its vendor documentation.
-
-## Run the audit
-
-Launch `codex` in the repository, then paste `prompts/00-audit-setup.md`. This first pass should be **read-only** and should produce a structured report, not silently modify the computer.
-
-## Enable Android CI later
-
-`templates/android-ci.yml` is deliberately outside `.github/workflows` because the initial kit contains **no `gradlew` and no compilable Android app**. When P00.4 passes, copy it to `.github/workflows/android-ci.yml`, align Java/SDK versions with the project, then validate the GitHub Actions workflow.
+The repository uses an HTTPS origin and `git ls-remote origin HEAD` has been
+verified. Do not activate Android CI until P00.4 produces a reproducible local
+build. `templates/android-ci.yml` remains outside `.github/workflows` until
+then.
