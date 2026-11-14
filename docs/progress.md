@@ -2,8 +2,8 @@
 
 ## Current status
 
-**P00.3 complete** — the minimal Android TV project builds reproducibly and its
-focusable bootstrap screen was installed and exercised on the physical TV.
+**P00.4 complete** — the checked-in Gradle Wrapper builds the debug APK, which
+was installed, launched, and validated on the authorized physical Android TV.
 
 ## Completed tasks
 
@@ -14,6 +14,8 @@ focusable bootstrap screen was installed and exercised on the physical TV.
   `docs/architecture.md`.
 - `P00.3` — one-module Android TV project, Gradle Wrapper, version catalog,
   Compose for TV bootstrap screen, launcher manifest, and focused unit test.
+- `P00.4` — reproducible wrapper build, installation and launch on the physical
+  TV, plus visual D-pad, activation, and Back validation.
 
 ## Verified results (2026-11-14)
 
@@ -33,6 +35,8 @@ focusable bootstrap screen was installed and exercised on the physical TV.
 - Android platforms 35, 36, 36.1, and 37.0 are installed.
 - Gradle Wrapper 9.5.0 ran with JDK 17.0.21 from
   `/usr/lib/jvm/java-17-openjdk`.
+- Wrapper scripts, JAR, properties, and version catalog are present in `HEAD`;
+  `gradlew` is tracked with executable mode `100755`.
 - `./gradlew testDebugUnitTest` passed: 1 test, 0 failures.
 - `./gradlew assembleDebug` passed. The APK is
   `app/build/outputs/apk/debug/app-debug.apk`.
@@ -55,6 +59,5 @@ will be checked against the target deployment.
 
 ## Next task
 
-`P00.4` remains the next formal roadmap item. Its checkbox and P00.5 CI
-activation remain untouched; this run used build/install/device checks only as
-the explicitly requested acceptance evidence for P00.3.
+`P00.5` — activate Android CI using the already verified wrapper build. P01 has
+not started; its local build and physical-TV prerequisites are satisfied.
