@@ -320,6 +320,28 @@ class JellyfinLibrariesViewModelTest {
         }
 
     @Test
+    fun `closing player clears only playback state and keeps loaded libraries`() =
+        runTest(mainDispatcherRule.dispatcher) {
+            val repository =
+                FakeLibrariesRepository(
+                    result = JellyfinLibrariesResult.Success(listOf(testLibrary())),
+                    playbackResult = JellyfinPlaybackResolutionResult.Success(testPlaybackSource()),
+                )
+            val viewModel = createViewModel(repository = repository)
+            advanceUntilIdle()
+            viewModel.resolveLibrary(testLibrary().id)
+            advanceUntilIdle()
+
+            viewModel.closePlayer()
+
+            assertEquals(LibrariesStatus.Success, viewModel.uiState.value.status)
+            assertEquals(listOf(testLibrary()), viewModel.uiState.value.libraries)
+            assertEquals(PlaybackResolutionStatus.Idle, viewModel.uiState.value.playbackStatus)
+            assertNull(viewModel.uiState.value.playbackSource)
+            assertNull(viewModel.uiState.value.activeLibraryId)
+        }
+
+    @Test
     fun `unexpected playback exception becomes retryable UI failure`() =
         runTest(mainDispatcherRule.dispatcher) {
             val repository =

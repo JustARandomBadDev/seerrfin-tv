@@ -56,6 +56,10 @@ dependencies {
     implementation(libs.androidx.datastore.preferences)
     implementation(libs.jellyfin.core)
     implementation(libs.kotlinx.coroutines.android)
+    implementation(libs.media3.exoplayer)
+    implementation(libs.media3.exoplayer.hls)
+    implementation(libs.media3.ui.compose)
+    implementation(libs.media3.session)
     runtimeOnly(libs.slf4j.nop)
 
     debugImplementation(libs.androidx.compose.ui.tooling)

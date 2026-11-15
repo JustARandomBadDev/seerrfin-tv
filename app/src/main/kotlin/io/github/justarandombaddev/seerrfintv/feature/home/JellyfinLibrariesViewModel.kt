@@ -135,6 +135,18 @@ class JellyfinLibrariesViewModel(
         }
     }
 
+    fun closePlayer() {
+        val state = mutableUiState.value
+        if (state.status != LibrariesStatus.Success || state.playbackSource == null) return
+        mutableUiState.value =
+            state.copy(
+                playbackStatus = PlaybackResolutionStatus.Idle,
+                activeLibraryId = null,
+                playbackSource = null,
+                playbackError = null,
+            )
+    }
+
     private fun restoreAndLoad(
         serverUrl: String?,
         initialLoad: Boolean = false,

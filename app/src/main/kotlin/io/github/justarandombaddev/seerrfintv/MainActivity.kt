@@ -18,6 +18,7 @@ import io.github.justarandombaddev.seerrfintv.feature.login.JellyfinLoginNotice
 import io.github.justarandombaddev.seerrfintv.feature.login.JellyfinLoginScreen
 import io.github.justarandombaddev.seerrfintv.feature.login.JellyfinLoginStatus
 import io.github.justarandombaddev.seerrfintv.feature.login.JellyfinLoginViewModel
+import io.github.justarandombaddev.seerrfintv.feature.player.PlayerRoute
 import io.github.justarandombaddev.seerrfintv.ui.theme.SeerrfinTheme
 
 class MainActivity : ComponentActivity() {
@@ -51,66 +52,75 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                when (librariesState.status) {
-                    LibrariesStatus.NeedsServer -> {
-                        ServerConnectionScreen(
-                            state = state,
-                            onServerUrlChanged = connectionViewModel::onServerUrlChanged,
-                            onConnect = connectionViewModel::connect,
-                        )
-                    }
-
-                    LibrariesStatus.NeedsLogin -> {
-                        val activeLoginServerUrl = requireNotNull(librariesState.serverUrl)
-                        val loginViewModel =
-                            viewModel<JellyfinLoginViewModel>(
-                                key =
-                                    "jellyfin-login-${activeLoginServerUrl.hashCode()}-" +
-                                        librariesState.loginRequestId,
-                            ) {
-                                JellyfinLoginViewModel(
-                                    serverUrl = activeLoginServerUrl,
-                                    jellyfinRepository = container.jellyfinRepository,
-                                    sessionStore = container.jellyfinSessionStore,
-                                )
-                            }
-                        val loginState by loginViewModel.uiState.collectAsStateWithLifecycle()
-
-                        LaunchedEffect(loginState.status) {
-                            if (loginState.status == JellyfinLoginStatus.Authenticated) {
-                                librariesViewModel.onLoginSucceeded()
-                            }
+                val playbackSource = librariesState.playbackSource
+                if (librariesState.status == LibrariesStatus.Success && playbackSource != null) {
+                    PlayerRoute(
+                        source = playbackSource,
+                        createEngine = container::createPlaybackEngine,
+                        onBack = librariesViewModel::closePlayer,
+                    )
+                } else {
+                    when (librariesState.status) {
+                        LibrariesStatus.NeedsServer -> {
+                            ServerConnectionScreen(
+                                state = state,
+                                onServerUrlChanged = connectionViewModel::onServerUrlChanged,
+                                onConnect = connectionViewModel::connect,
+                            )
                         }
 
-                        JellyfinLoginScreen(
-                            state = loginState,
-                            onUsernameChanged = loginViewModel::onUsernameChanged,
-                            onPasswordChanged = loginViewModel::onPasswordChanged,
-                            onLogin = loginViewModel::login,
-                            onBack = {
-                                connectionViewModel.returnToEditing()
-                                librariesViewModel.onLoginBack()
-                            },
-                            notice =
-                                when (librariesState.sessionIssue) {
-                                    LibrariesSessionIssue.Expired -> JellyfinLoginNotice.SessionExpired
-                                    LibrariesSessionIssue.Unreadable -> JellyfinLoginNotice.SessionUnreadable
-                                    null -> null
-                                },
-                        )
-                    }
+                        LibrariesStatus.NeedsLogin -> {
+                            val activeLoginServerUrl = requireNotNull(librariesState.serverUrl)
+                            val loginViewModel =
+                                viewModel<JellyfinLoginViewModel>(
+                                    key =
+                                        "jellyfin-login-${activeLoginServerUrl.hashCode()}-" +
+                                            librariesState.loginRequestId,
+                                ) {
+                                    JellyfinLoginViewModel(
+                                        serverUrl = activeLoginServerUrl,
+                                        jellyfinRepository = container.jellyfinRepository,
+                                        sessionStore = container.jellyfinSessionStore,
+                                    )
+                                }
+                            val loginState by loginViewModel.uiState.collectAsStateWithLifecycle()
 
-                    LibrariesStatus.Restoring,
-                    LibrariesStatus.Loading,
-                    LibrariesStatus.Empty,
-                    LibrariesStatus.Success,
-                    LibrariesStatus.Error,
-                    ->
-                        JellyfinLibrariesScreen(
-                            state = librariesState,
-                            onRetry = librariesViewModel::retry,
-                            onLibraryActivated = librariesViewModel::resolveLibrary,
-                        )
+                            LaunchedEffect(loginState.status) {
+                                if (loginState.status == JellyfinLoginStatus.Authenticated) {
+                                    librariesViewModel.onLoginSucceeded()
+                                }
+                            }
+
+                            JellyfinLoginScreen(
+                                state = loginState,
+                                onUsernameChanged = loginViewModel::onUsernameChanged,
+                                onPasswordChanged = loginViewModel::onPasswordChanged,
+                                onLogin = loginViewModel::login,
+                                onBack = {
+                                    connectionViewModel.returnToEditing()
+                                    librariesViewModel.onLoginBack()
+                                },
+                                notice =
+                                    when (librariesState.sessionIssue) {
+                                        LibrariesSessionIssue.Expired -> JellyfinLoginNotice.SessionExpired
+                                        LibrariesSessionIssue.Unreadable -> JellyfinLoginNotice.SessionUnreadable
+                                        null -> null
+                                    },
+                            )
+                        }
+
+                        LibrariesStatus.Restoring,
+                        LibrariesStatus.Loading,
+                        LibrariesStatus.Empty,
+                        LibrariesStatus.Success,
+                        LibrariesStatus.Error,
+                        ->
+                            JellyfinLibrariesScreen(
+                                state = librariesState,
+                                onRetry = librariesViewModel::retry,
+                                onLibraryActivated = librariesViewModel::resolveLibrary,
+                            )
+                    }
                 }
             }
         }

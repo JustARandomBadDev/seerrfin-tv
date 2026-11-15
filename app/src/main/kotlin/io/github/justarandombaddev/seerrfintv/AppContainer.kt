@@ -9,10 +9,12 @@ import io.github.justarandombaddev.seerrfintv.data.settings.serverSettingsDataSt
 import io.github.justarandombaddev.seerrfintv.domain.repository.JellyfinRepository
 import io.github.justarandombaddev.seerrfintv.domain.repository.ServerSettingsRepository
 import io.github.justarandombaddev.seerrfintv.domain.session.JellyfinSessionStore
+import io.github.justarandombaddev.seerrfintv.playback.Media3PlaybackEngine
 import org.jellyfin.sdk.createJellyfin
 import org.jellyfin.sdk.model.ClientInfo
 
 class AppContainer(context: Context) {
+    private val applicationContext = context.applicationContext
     val serverUrlNormalizer = ServerUrlNormalizer()
 
     val jellyfinRepository: JellyfinRepository =
@@ -28,5 +30,7 @@ class AppContainer(context: Context) {
         DataStoreServerSettingsRepository(context.serverSettingsDataStore)
 
     val jellyfinSessionStore: JellyfinSessionStore =
-        EncryptedJellyfinSessionStore(context.applicationContext)
+        EncryptedJellyfinSessionStore(applicationContext)
+
+    fun createPlaybackEngine(): Media3PlaybackEngine = Media3PlaybackEngine(applicationContext)
 }

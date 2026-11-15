@@ -2,11 +2,10 @@
 
 ## Current status
 
-**P02.1 PASS on `dev`** — activating an accessible Jellyfin library with the TV
-remote recursively searches paginated video items and obtains the first
-server-authorized usable playback source. The temporary validation UI reports
-the resolved item and direct-play, direct-stream, or transcode method without
-starting Media3 playback or exposing source URLs and session material.
+**P02.2 PASS on `dev`** — a negotiated P02.1 source now opens a foreground
+Media3 player with video output, MediaSession integration, play/pause, bounded
+10-second seeking, D-pad and media-key handling, safe playback errors, and Back
+navigation that releases the player and restores the libraries screen.
 
 ## Completed tasks
 
@@ -33,6 +32,45 @@ starting Media3 playback or exposing source URLs and session material.
 - `P02.1` — recursive paginated playable-item lookup, conservative Jellyfin
   playback capability negotiation, server-authorized source selection, and a
   temporary D-pad library activation surface.
+- `P02.2` — screen-owned Media3 playback, foreground MediaSession, TV remote
+  play/pause/seek controls, bounded streaming timeout, safe errors, and player
+  lifecycle cleanup on Back.
+
+## P02.2 verification — PASS (2026-11-15)
+
+- Media3 1.11.1 documentation confirmed the Compose `PlayerSurface`, ExoPlayer,
+  HLS, and MediaSession APIs. The official Jellyfin Android TV client confirmed
+  direct Player commands, seekability checks, session-to-player binding, and a
+  playback HTTP client with relaxed request timing; no GPL-licensed code was
+  copied.
+- The player consumes the exact P02.1 source and required HTTP headers without
+  logging them. Its screen owns and releases ExoPlayer and MediaSession, pauses
+  when the app leaves the foreground, keeps the display awake while active,
+  and exposes immutable UI state through a ViewModel `StateFlow`.
+- D-pad Center/Enter and media keys control play/pause; Left/Right and media
+  rewind/fast-forward seek by a bounded 10 seconds only when the item is
+  seekable. Playback intent makes pause reliable during buffering, and held
+  toggle keys execute once while held seek keys may repeat. Back closes
+  playback, removes MediaSession, retains the loaded libraries, and restores a
+  single focused library action.
+- A real transcode initially exposed Media3's default response-header timeout.
+  Process-scoped evidence isolated a `SocketTimeoutException`; a tested,
+  bounded 60-second playback read timeout fixed startup while preserving the
+  existing negotiation and security boundaries.
+- The final `:app:testDebugUnitTest :app:assembleDebug` run passed 94 tests with
+  no failures or errors and produced the debug APK with JDK 17.
+- The final APK installed with `-r` on the authorized Android 14
+  `Smart_TV_Pro`. A real movie rendered and played; Center paused at 01:04,
+  Right moved to 01:14, Left returned to 01:04, Center resumed, and Back
+  returned to the libraries before a second Back returned to the TV launcher.
+- A final remote regression check paused during initial buffering at 00:00;
+  after preparation completed, an injected long-press Center event resumed
+  once and remained playing instead of toggling repeatedly.
+- A temporary validation-only unsupported URI produced the safe on-device
+  playback error and Back recovery without displaying source details. It was
+  removed before the final build and installation. Final process-scoped logs
+  contained no fatal exception or URL, authorization, token, password, or API
+  key markers; temporary captures and dumps were removed.
 
 ## P02.1 verification — PASS (2026-11-15)
 
@@ -222,5 +260,5 @@ will be checked against the target deployment.
 
 ## Next task
 
-`P02.2` — play, pause, and seek with Media3 and the TV remote. It has not been
-started and requires a new explicit request.
+`P02.3` — report playback progress, stop, and resume to Jellyfin. It has not
+been started and requires a new explicit request.
