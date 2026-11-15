@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import io.github.justarandombaddev.seerrfintv.domain.model.JellyfinLibrary
 import io.github.justarandombaddev.seerrfintv.domain.model.JellyfinPlaybackSource
+import io.github.justarandombaddev.seerrfintv.domain.model.JellyfinPlaybackReport
 import io.github.justarandombaddev.seerrfintv.domain.model.JellyfinSession
 import io.github.justarandombaddev.seerrfintv.domain.repository.JellyfinLibrariesResult
 import io.github.justarandombaddev.seerrfintv.domain.repository.JellyfinPlaybackResolutionResult
@@ -19,6 +20,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 enum class LibrariesStatus {
     Restoring,
@@ -145,6 +147,20 @@ class JellyfinLibrariesViewModel(
                 playbackSource = null,
                 playbackError = null,
             )
+    }
+
+    suspend fun reportPlayback(report: JellyfinPlaybackReport) {
+        val serverUrl = mutableUiState.value.serverUrl ?: return
+        val session = activeSession ?: return
+        try {
+            withContext(ioDispatcher) {
+                jellyfinRepository.reportPlayback(serverUrl, session, report)
+            }
+        } catch (error: CancellationException) {
+            throw error
+        } catch (_: Exception) {
+            // Reporting is best effort and must not interrupt active playback.
+        }
     }
 
     private fun restoreAndLoad(

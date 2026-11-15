@@ -4,7 +4,10 @@ import io.github.justarandombaddev.seerrfintv.domain.repository.JellyfinAuthenti
 import io.github.justarandombaddev.seerrfintv.domain.repository.JellyfinConnectionResult
 import io.github.justarandombaddev.seerrfintv.domain.repository.JellyfinLibrariesResult
 import io.github.justarandombaddev.seerrfintv.domain.repository.JellyfinPlaybackResolutionResult
+import io.github.justarandombaddev.seerrfintv.domain.repository.JellyfinPlaybackReportResult
 import io.github.justarandombaddev.seerrfintv.domain.model.JellyfinLibrary
+import io.github.justarandombaddev.seerrfintv.domain.model.JellyfinPlaybackReport
+import io.github.justarandombaddev.seerrfintv.domain.model.JellyfinPlaybackReportKind
 import io.github.justarandombaddev.seerrfintv.domain.model.JellyfinSession
 import io.github.justarandombaddev.seerrfintv.domain.model.PlaybackMethod
 import io.github.justarandombaddev.seerrfintv.playback.PlaybackSourceCandidate
@@ -17,6 +20,7 @@ import org.jellyfin.sdk.api.client.exception.InvalidStatusException
 import org.jellyfin.sdk.api.client.exception.SecureConnectionException
 import org.jellyfin.sdk.api.client.exception.TimeoutException
 import org.jellyfin.sdk.model.api.PublicSystemInfo
+import org.jellyfin.sdk.model.deviceprofile.buildDeviceProfile
 import org.junit.Assert.assertEquals
 import org.junit.Assert.fail
 import org.junit.Test
@@ -329,6 +333,170 @@ class SdkJellyfinRepositoryTest {
         }
 
     @Test
+    fun `resolved source keeps the Jellyfin resume position`() =
+        runTest {
+            val repository =
+                repositoryWithPlayback(
+                    itemProvider = {
+                        SdkPlayableItemPage(
+                            items =
+                                listOf(
+                                    playableItem(
+                                        id = "00000000-0000-0000-0000-000000000100",
+                                        name = "Resumable",
+                                        playbackPositionTicks = 123_450_000L,
+                                    ),
+                                ),
+                            totalRecordCount = 1,
+                        )
+                    },
+                    playbackProvider = {
+                        playbackInfo(
+                            candidate =
+                                playbackCandidate(
+                                    supportsDirectPlay = true,
+                                    directPlayUrl = "https://media.example.test/video.mp4",
+                                ),
+                        )
+                    },
+                )
+
+            val result = repository.resolvePlaybackSource(TEST_SERVER_URL, testSession(), TEST_LIBRARY_ID)
+
+            val success = result as JellyfinPlaybackResolutionResult.Success
+            assertEquals(12_345L, success.source.item.resumePositionMs)
+        }
+
+    @Test
+    fun `playback negotiation includes the Jellyfin resume position for transcoding`() {
+        val request =
+            SdkPlaybackInfoRequest(
+                serverUrl = TEST_SERVER_URL,
+                accessToken = "test-access-token",
+                userId = UUID.fromString("00000000-0000-0000-0000-000000000001"),
+                item =
+                    playableItem(
+                        id = "00000000-0000-0000-0000-000000000100",
+                        name = "Resumable",
+                        playbackPositionTicks = 123_450_000L,
+                    ),
+            )
+
+        val payload =
+            request.toPlaybackInfoDto(
+                deviceProfile = buildDeviceProfile { name = "Test profile" },
+            )
+
+        assertEquals(123_450_000L, payload.startTimeTicks)
+        assertEquals(request.userId, payload.userId)
+        assertEquals(true, payload.enableDirectPlay)
+        assertEquals(true, payload.enableDirectStream)
+        assertEquals(true, payload.enableTranscoding)
+    }
+
+    @Test
+    fun `playback report maps app state to Jellyfin start payload`() {
+        val payload =
+            playbackReport(kind = JellyfinPlaybackReportKind.Start)
+                .toPlaybackStartInfo()
+
+        assertEquals(UUID.fromString("00000000-0000-0000-0000-000000000100"), payload.itemId)
+        assertEquals("media-source", payload.mediaSourceId)
+        assertEquals("play-session", payload.playSessionId)
+        assertEquals(123_450_000L, payload.positionTicks)
+        assertEquals(org.jellyfin.sdk.model.api.PlayMethod.TRANSCODE, payload.playMethod)
+        assertEquals(false, payload.isPaused)
+        assertEquals(true, payload.canSeek)
+        assertEquals(org.jellyfin.sdk.model.api.RepeatMode.REPEAT_NONE, payload.repeatMode)
+        assertEquals(org.jellyfin.sdk.model.api.PlaybackOrder.DEFAULT, payload.playbackOrder)
+    }
+
+    @Test
+    fun `playback report maps pause and failure to progress and stop payloads`() {
+        val progress =
+            playbackReport(
+                kind = JellyfinPlaybackReportKind.Progress,
+                isPaused = true,
+            ).toPlaybackProgressInfo()
+        val stop =
+            playbackReport(
+                kind = JellyfinPlaybackReportKind.Stop,
+                failed = true,
+            ).toPlaybackStopInfo()
+
+        assertEquals(true, progress.isPaused)
+        assertEquals(123_450_000L, progress.positionTicks)
+        assertEquals("media-source", progress.mediaSourceId)
+        assertEquals(true, stop.failed)
+        assertEquals(123_450_000L, stop.positionTicks)
+        assertEquals("play-session", stop.playSessionId)
+    }
+
+    @Test
+    fun `valid playback report is sent with authenticated context`() =
+        runTest {
+            val requests = mutableListOf<SdkPlaybackReportRequest>()
+            val repository =
+                repositoryWithReporting { request ->
+                    requests += request
+                }
+            val report = playbackReport(JellyfinPlaybackReportKind.Progress)
+
+            val result = repository.reportPlayback(TEST_SERVER_URL, testSession(), report)
+
+            assertEquals(JellyfinPlaybackReportResult.Success, result)
+            assertEquals(1, requests.size)
+            assertEquals(TEST_SERVER_URL, requests.single().serverUrl)
+            assertEquals("test-access-token", requests.single().accessToken)
+            assertEquals(report, requests.single().report)
+            assertEquals("SdkPlaybackReportRequest(<redacted>)", requests.single().toString())
+        }
+
+    @Test
+    fun `playback reporting failures map without exposing SDK errors`() =
+        runTest {
+            val cases =
+                listOf(
+                    InvalidStatusException(401) to JellyfinPlaybackReportResult.InvalidSession,
+                    TimeoutException() to JellyfinPlaybackReportResult.Unreachable,
+                    SecureConnectionException() to JellyfinPlaybackReportResult.SecureConnectionFailed,
+                    InvalidStatusException(503) to JellyfinPlaybackReportResult.ServerRejected,
+                    InvalidContentException() to JellyfinPlaybackReportResult.InvalidResponse,
+                    ApiClientException() to JellyfinPlaybackReportResult.UnexpectedFailure,
+                )
+
+            cases.forEach { (failure, expected) ->
+                val repository = repositoryWithReporting { throw failure }
+
+                assertEquals(
+                    expected,
+                    repository.reportPlayback(
+                        TEST_SERVER_URL,
+                        testSession(),
+                        playbackReport(JellyfinPlaybackReportKind.Progress),
+                    ),
+                )
+            }
+        }
+
+    @Test
+    fun `playback reporting cancellation is rethrown`() =
+        runTest {
+            val repository = repositoryWithReporting { throw CancellationException() }
+
+            try {
+                repository.reportPlayback(
+                    TEST_SERVER_URL,
+                    testSession(),
+                    playbackReport(JellyfinPlaybackReportKind.Progress),
+                )
+                fail("CancellationException expected")
+            } catch (_: CancellationException) {
+                // Expected: structured concurrency cancellation must not become a reporting result.
+            }
+        }
+
+    @Test
     fun `empty page terminates recursive search without another request`() =
         runTest {
             var pageCalls = 0
@@ -520,6 +688,18 @@ class SdkJellyfinRepositoryTest {
             playbackPageSize = pageSize,
         )
 
+    private fun repositoryWithReporting(
+        reportProvider: JellyfinPlaybackReportProvider,
+    ): SdkJellyfinRepository =
+        SdkJellyfinRepository(
+            probe = JellyfinServerProbe { PublicSystemInfo() },
+            authenticator = JellyfinUserAuthenticator { _, _, _ -> error("Not used by reporting tests") },
+            libraryProvider = JellyfinLibraryProvider { _, _, _ -> emptyList() },
+            playableItemProvider = JellyfinPlayableItemProvider { SdkPlayableItemPage(emptyList(), 0) },
+            playbackInfoProvider = JellyfinPlaybackInfoProvider { playbackInfo() },
+            playbackReportProvider = reportProvider,
+        )
+
     private fun testSession() =
         JellyfinSession(
             accessToken = "test-access-token",
@@ -534,7 +714,31 @@ class SdkJellyfinRepositoryTest {
         fun playableItem(
             id: String,
             name: String,
-        ) = SdkPlayableItem(id = id, name = name, type = "MOVIE")
+            playbackPositionTicks: Long = 0,
+        ) =
+            SdkPlayableItem(
+                id = id,
+                name = name,
+                type = "MOVIE",
+                playbackPositionTicks = playbackPositionTicks,
+            )
+
+        fun playbackReport(
+            kind: JellyfinPlaybackReportKind,
+            isPaused: Boolean = false,
+            failed: Boolean = false,
+        ) =
+            JellyfinPlaybackReport(
+                kind = kind,
+                itemId = "00000000-0000-0000-0000-000000000100",
+                mediaSourceId = "media-source",
+                playSessionId = "play-session",
+                method = PlaybackMethod.TRANSCODE,
+                positionMs = 12_345L,
+                isPaused = isPaused,
+                isSeekable = true,
+                failed = failed,
+            )
 
         fun playbackCandidate(
             supportsDirectPlay: Boolean = false,

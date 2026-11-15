@@ -28,6 +28,7 @@ data class PlaybackEngineSnapshot(
     val durationMs: Long = 0,
     val isSeekable: Boolean = false,
     val error: PlaybackEngineError? = null,
+    val updateSequence: Long = 0,
 )
 
 interface PlaybackEngine {
@@ -54,6 +55,8 @@ internal fun boundedSeekTarget(
     val target = (currentMs + offsetMs).coerceAtLeast(0)
     return if (durationMs > 0) target.coerceAtMost(durationMs) else target
 }
+
+internal fun resumeStartPositionMs(positionMs: Long): Long = positionMs.coerceAtLeast(0)
 
 internal fun playbackReadTimeoutMs(method: PlaybackMethod): Int =
     when (method) {

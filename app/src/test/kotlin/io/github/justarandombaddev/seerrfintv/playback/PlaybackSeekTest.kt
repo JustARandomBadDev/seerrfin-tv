@@ -16,4 +16,10 @@ class PlaybackSeekTest {
         assertEquals(30_000, boundedSeekTarget(currentMs = 20_000, offsetMs = 10_000, durationMs = 0))
         assertEquals(0, boundedSeekTarget(currentMs = 2_000, offsetMs = -10_000, durationMs = 0))
     }
+
+    @Test
+    fun `resume start position never seeks before the media`() {
+        assertEquals(12_345L, resumeStartPositionMs(12_345L))
+        assertEquals(0L, resumeStartPositionMs(-1L))
+    }
 }

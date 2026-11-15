@@ -41,16 +41,21 @@ import androidx.media3.ui.compose.PlayerSurface
 import androidx.tv.material3.Text
 import io.github.justarandombaddev.seerrfintv.R
 import io.github.justarandombaddev.seerrfintv.domain.model.JellyfinPlaybackSource
+import io.github.justarandombaddev.seerrfintv.domain.model.JellyfinPlaybackReport
 import io.github.justarandombaddev.seerrfintv.playback.Media3PlaybackEngine
 
 @Composable
 fun PlayerRoute(
     source: JellyfinPlaybackSource,
     createEngine: () -> Media3PlaybackEngine,
+    reportPlayback: suspend (JellyfinPlaybackReport) -> Unit,
     onBack: () -> Unit,
 ) {
     val engine = remember(source) { createEngine() }
-    val playerViewModel = viewModel<PlayerViewModel>(key = "media3-player")
+    val playerViewModel =
+        viewModel<PlayerViewModel>(key = "media3-player") {
+            PlayerViewModel(reportPlayback = reportPlayback)
+        }
     val state by playerViewModel.uiState.collectAsStateWithLifecycle()
     val lifecycleOwner = LocalLifecycleOwner.current
     val hostView = LocalView.current

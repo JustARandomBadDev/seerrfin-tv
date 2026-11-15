@@ -4,8 +4,29 @@ data class JellyfinPlayableItem(
     val id: String,
     val name: String,
     val type: String,
+    val resumePositionMs: Long = 0,
 ) {
     override fun toString(): String = "JellyfinPlayableItem(<redacted>)"
+}
+
+enum class JellyfinPlaybackReportKind {
+    Start,
+    Progress,
+    Stop,
+}
+
+data class JellyfinPlaybackReport(
+    val kind: JellyfinPlaybackReportKind,
+    val itemId: String,
+    val mediaSourceId: String,
+    val playSessionId: String?,
+    val method: PlaybackMethod,
+    val positionMs: Long,
+    val isPaused: Boolean,
+    val isSeekable: Boolean,
+    val failed: Boolean = false,
+) {
+    override fun toString(): String = "JellyfinPlaybackReport(<redacted>)"
 }
 
 enum class PlaybackMethod {

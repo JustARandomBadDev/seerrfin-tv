@@ -2,6 +2,8 @@ package io.github.justarandombaddev.seerrfintv.feature.home
 
 import io.github.justarandombaddev.seerrfintv.domain.model.JellyfinLibrary
 import io.github.justarandombaddev.seerrfintv.domain.model.JellyfinPlayableItem
+import io.github.justarandombaddev.seerrfintv.domain.model.JellyfinPlaybackReport
+import io.github.justarandombaddev.seerrfintv.domain.model.JellyfinPlaybackReportKind
 import io.github.justarandombaddev.seerrfintv.domain.model.JellyfinPlaybackSource
 import io.github.justarandombaddev.seerrfintv.domain.model.JellyfinSession
 import io.github.justarandombaddev.seerrfintv.domain.model.PlaybackMethod
@@ -9,6 +11,7 @@ import io.github.justarandombaddev.seerrfintv.domain.repository.JellyfinAuthenti
 import io.github.justarandombaddev.seerrfintv.domain.repository.JellyfinConnectionResult
 import io.github.justarandombaddev.seerrfintv.domain.repository.JellyfinLibrariesResult
 import io.github.justarandombaddev.seerrfintv.domain.repository.JellyfinPlaybackResolutionResult
+import io.github.justarandombaddev.seerrfintv.domain.repository.JellyfinPlaybackReportResult
 import io.github.justarandombaddev.seerrfintv.domain.repository.JellyfinRepository
 import io.github.justarandombaddev.seerrfintv.domain.repository.ServerSettingsRepository
 import io.github.justarandombaddev.seerrfintv.domain.session.JellyfinSessionRestoreResult
@@ -342,6 +345,27 @@ class JellyfinLibrariesViewModelTest {
         }
 
     @Test
+    fun `playback report uses the restored session without exposing it in UI state`() =
+        runTest(mainDispatcherRule.dispatcher) {
+            val repository =
+                FakeLibrariesRepository(
+                    result = JellyfinLibrariesResult.Success(listOf(testLibrary())),
+                )
+            val viewModel = createViewModel(repository = repository)
+            advanceUntilIdle()
+            val report = testPlaybackReport()
+
+            viewModel.reportPlayback(report)
+
+            assertEquals(
+                listOf(PlaybackReportCall(SERVER_URL, testSession(), report)),
+                repository.reportCalls,
+            )
+            assertEquals(SERVER_URL, viewModel.uiState.value.serverUrl)
+            assertEquals(false, viewModel.uiState.value.toString().contains("test-access-token"))
+        }
+
+    @Test
     fun `unexpected playback exception becomes retryable UI failure`() =
         runTest(mainDispatcherRule.dispatcher) {
             val repository =
@@ -405,6 +429,18 @@ class JellyfinLibrariesViewModelTest {
                 url = "https://media.example.test/video.mp4",
                 requiredHttpHeaders = emptyMap(),
             )
+
+        fun testPlaybackReport() =
+            JellyfinPlaybackReport(
+                kind = JellyfinPlaybackReportKind.Progress,
+                itemId = "00000000-0000-0000-0000-000000000100",
+                mediaSourceId = "media-source",
+                playSessionId = "play-session",
+                method = PlaybackMethod.DIRECT_PLAY,
+                positionMs = 12_345,
+                isPaused = false,
+                isSeekable = true,
+            )
     }
 }
 
@@ -419,6 +455,12 @@ private data class PlaybackResolveCall(
     val libraryId: String,
 )
 
+private data class PlaybackReportCall(
+    val serverUrl: String,
+    val session: JellyfinSession,
+    val report: JellyfinPlaybackReport,
+)
+
 private class FakeLibrariesRepository(
     var result: JellyfinLibrariesResult = JellyfinLibrariesResult.UnexpectedFailure,
     var playbackResult: JellyfinPlaybackResolutionResult =
@@ -428,6 +470,7 @@ private class FakeLibrariesRepository(
 ) : JellyfinRepository {
     val fetchCalls = mutableListOf<LibraryFetchCall>()
     val resolveCalls = mutableListOf<PlaybackResolveCall>()
+    val reportCalls = mutableListOf<PlaybackReportCall>()
 
     override suspend fun connect(serverUrl: String): JellyfinConnectionResult =
         JellyfinConnectionResult.UnexpectedFailure
@@ -455,6 +498,15 @@ private class FakeLibrariesRepository(
         beforePlaybackResult()
         playbackFailure?.let { throw it }
         return playbackResult
+    }
+
+    override suspend fun reportPlayback(
+        serverUrl: String,
+        session: JellyfinSession,
+        report: JellyfinPlaybackReport,
+    ): JellyfinPlaybackReportResult {
+        reportCalls += PlaybackReportCall(serverUrl, session, report)
+        return JellyfinPlaybackReportResult.Success
     }
 }
 

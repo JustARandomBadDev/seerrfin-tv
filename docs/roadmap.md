@@ -24,7 +24,7 @@ Each task has a concrete completion condition. Do not advance to the next milest
 
 - [x] P02.1 Resolve a playable Jellyfin item and obtain an appropriate playback source.
 - [x] P02.2 Play/pause/seek with Media3 and TV remote.
-- [ ] P02.3 Report playback progress, stop and resume to Jellyfin.
+- [x] P02.3 Report playback progress, stop and resume to Jellyfin.
 
 **Exit:** one real movie plays and Jellyfin reflects progress correctly.
 

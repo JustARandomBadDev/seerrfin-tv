@@ -33,6 +33,7 @@ class Media3PlaybackEngine(context: Context) : PlaybackEngine {
     private val handler = Handler(Looper.getMainLooper())
     private var released = false
     private var playbackFailed = false
+    private var snapshotSequence = 0L
 
     private val positionRefresh =
         object : Runnable {
@@ -84,7 +85,7 @@ class Media3PlaybackEngine(context: Context) : PlaybackEngine {
                 .setMediaId(source.item.id)
                 .setMediaMetadata(MediaMetadata.Builder().setTitle(source.item.name).build())
                 .build()
-        exoPlayer.setMediaItem(mediaItem)
+        exoPlayer.setMediaItem(mediaItem, resumeStartPositionMs(source.item.resumePositionMs))
         exoPlayer.prepare()
         exoPlayer.play()
     }
@@ -137,6 +138,7 @@ class Media3PlaybackEngine(context: Context) : PlaybackEngine {
 
     private fun publishSnapshot() {
         if (released) return
+        snapshotSequence += 1
         val status =
             when {
                 playbackFailed -> PlaybackEngineStatus.Error
@@ -155,6 +157,7 @@ class Media3PlaybackEngine(context: Context) : PlaybackEngine {
                     exoPlayer.isCurrentMediaItemSeekable &&
                         exoPlayer.isCommandAvailable(Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM),
                 error = if (playbackFailed) PlaybackEngineError.PlaybackFailed else null,
+                updateSequence = snapshotSequence,
             )
     }
 }

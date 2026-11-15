@@ -5,11 +5,15 @@ import java.util.UUID
 import kotlin.time.Duration.Companion.seconds
 import io.github.justarandombaddev.seerrfintv.domain.model.JellyfinLibrary
 import io.github.justarandombaddev.seerrfintv.domain.model.JellyfinPlayableItem
+import io.github.justarandombaddev.seerrfintv.domain.model.JellyfinPlaybackReport
+import io.github.justarandombaddev.seerrfintv.domain.model.JellyfinPlaybackReportKind
 import io.github.justarandombaddev.seerrfintv.domain.model.JellyfinSession
+import io.github.justarandombaddev.seerrfintv.domain.model.PlaybackMethod
 import io.github.justarandombaddev.seerrfintv.domain.repository.JellyfinAuthenticationResult
 import io.github.justarandombaddev.seerrfintv.domain.repository.JellyfinConnectionResult
 import io.github.justarandombaddev.seerrfintv.domain.repository.JellyfinLibrariesResult
 import io.github.justarandombaddev.seerrfintv.domain.repository.JellyfinPlaybackResolutionResult
+import io.github.justarandombaddev.seerrfintv.domain.repository.JellyfinPlaybackReportResult
 import io.github.justarandombaddev.seerrfintv.domain.repository.JellyfinRepository
 import io.github.justarandombaddev.seerrfintv.playback.PlaybackSourceCandidate
 import io.github.justarandombaddev.seerrfintv.playback.PlaybackSourceSelector
@@ -24,17 +28,25 @@ import org.jellyfin.sdk.api.client.extensions.authenticateUserByName
 import org.jellyfin.sdk.api.client.extensions.authenticationApi
 import org.jellyfin.sdk.api.client.extensions.libraryApi
 import org.jellyfin.sdk.api.client.extensions.mediaInfoApi
+import org.jellyfin.sdk.api.client.extensions.sessionApi
 import org.jellyfin.sdk.api.client.extensions.systemApi
 import org.jellyfin.sdk.api.client.extensions.userViewApi
 import org.jellyfin.sdk.api.client.extensions.videoApi
 import org.jellyfin.sdk.model.api.BaseItemKind
 import org.jellyfin.sdk.model.api.DlnaProfileType
+import org.jellyfin.sdk.model.api.DeviceProfile
 import org.jellyfin.sdk.model.api.EncodingContext
 import org.jellyfin.sdk.model.api.ItemFilter
 import org.jellyfin.sdk.model.api.ItemSortBy
 import org.jellyfin.sdk.model.api.MediaStreamProtocol
 import org.jellyfin.sdk.model.api.PlaybackInfoDto
+import org.jellyfin.sdk.model.api.PlaybackOrder
+import org.jellyfin.sdk.model.api.PlaybackProgressInfo
+import org.jellyfin.sdk.model.api.PlaybackStartInfo
+import org.jellyfin.sdk.model.api.PlaybackStopInfo
+import org.jellyfin.sdk.model.api.PlayMethod
 import org.jellyfin.sdk.model.api.PublicSystemInfo
+import org.jellyfin.sdk.model.api.RepeatMode
 import org.jellyfin.sdk.model.api.SortOrder
 import org.jellyfin.sdk.model.api.request.GetItemsRequest
 import org.jellyfin.sdk.model.deviceprofile.buildDeviceProfile
@@ -78,6 +90,7 @@ data class SdkPlayableItem(
     val id: String,
     val name: String,
     val type: String,
+    val playbackPositionTicks: Long = 0,
 ) {
     override fun toString(): String = "SdkPlayableItem(<redacted>)"
 }
@@ -126,12 +139,25 @@ fun interface JellyfinPlaybackInfoProvider {
     suspend fun getPlaybackInfo(request: SdkPlaybackInfoRequest): SdkPlaybackInfo
 }
 
+data class SdkPlaybackReportRequest(
+    val serverUrl: String,
+    val accessToken: String,
+    val report: JellyfinPlaybackReport,
+) {
+    override fun toString(): String = "SdkPlaybackReportRequest(<redacted>)"
+}
+
+fun interface JellyfinPlaybackReportProvider {
+    suspend fun report(request: SdkPlaybackReportRequest)
+}
+
 class SdkJellyfinRepository internal constructor(
     private val probe: JellyfinServerProbe,
     private val authenticator: JellyfinUserAuthenticator,
     private val libraryProvider: JellyfinLibraryProvider,
     private val playableItemProvider: JellyfinPlayableItemProvider,
     private val playbackInfoProvider: JellyfinPlaybackInfoProvider,
+    private val playbackReportProvider: JellyfinPlaybackReportProvider = JellyfinPlaybackReportProvider {},
     private val playbackPageSize: Int = PLAYBACK_PAGE_SIZE,
 ) : JellyfinRepository {
     constructor(jellyfin: Jellyfin) : this(
@@ -140,6 +166,7 @@ class SdkJellyfinRepository internal constructor(
         libraryProvider = createLibraryProvider(jellyfin),
         playableItemProvider = createPlayableItemProvider(jellyfin),
         playbackInfoProvider = createPlaybackInfoProvider(jellyfin),
+        playbackReportProvider = createPlaybackReportProvider(jellyfin),
     )
 
     override suspend fun connect(serverUrl: String): JellyfinConnectionResult =
@@ -302,6 +329,57 @@ class SdkJellyfinRepository internal constructor(
         }
     }
 
+    override suspend fun reportPlayback(
+        serverUrl: String,
+        session: JellyfinSession,
+        report: JellyfinPlaybackReport,
+    ): JellyfinPlaybackReportResult {
+        if (
+            serverUrl.isBlank() ||
+            session.accessToken.isBlank() ||
+            session.userId.isBlank() ||
+            session.serverId.isBlank()
+        ) {
+            return JellyfinPlaybackReportResult.InvalidSession
+        }
+        if (
+            session.userId.toUuidOrNull() == null ||
+            report.itemId.toUuidOrNull() == null ||
+            report.mediaSourceId.isBlank()
+        ) {
+            return JellyfinPlaybackReportResult.InvalidResponse
+        }
+
+        return try {
+            playbackReportProvider.report(
+                SdkPlaybackReportRequest(
+                    serverUrl = serverUrl,
+                    accessToken = session.accessToken,
+                    report = report,
+                ),
+            )
+            JellyfinPlaybackReportResult.Success
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: InvalidStatusException) {
+            if (error.status == HTTP_UNAUTHORIZED) {
+                JellyfinPlaybackReportResult.InvalidSession
+            } else {
+                JellyfinPlaybackReportResult.ServerRejected
+            }
+        } catch (_: TimeoutException) {
+            JellyfinPlaybackReportResult.Unreachable
+        } catch (_: SecureConnectionException) {
+            JellyfinPlaybackReportResult.SecureConnectionFailed
+        } catch (_: InvalidContentException) {
+            JellyfinPlaybackReportResult.InvalidResponse
+        } catch (_: ApiClientException) {
+            JellyfinPlaybackReportResult.UnexpectedFailure
+        } catch (_: Exception) {
+            JellyfinPlaybackReportResult.UnexpectedFailure
+        }
+    }
+
     private suspend fun resolvePlaybackSource(
         serverUrl: String,
         session: JellyfinSession,
@@ -349,6 +427,7 @@ class SdkJellyfinRepository internal constructor(
                                     id = sdkItem.id,
                                     name = sdkItem.name,
                                     type = sdkItem.type,
+                                    resumePositionMs = sdkItem.playbackPositionTicks.coerceAtLeast(0) / TICKS_PER_MILLISECOND,
                                 ),
                             playSessionId = playbackInfo.playSessionId,
                             sources = playbackInfo.sources,
@@ -386,6 +465,7 @@ class SdkJellyfinRepository internal constructor(
         const val JELLYFIN_PRODUCT_NAME = "Jellyfin Server"
         const val HTTP_UNAUTHORIZED = 401
         const val PLAYBACK_PAGE_SIZE = 50
+        const val TICKS_PER_MILLISECOND = 10_000L
 
         val HTTP_CLIENT_OPTIONS =
             HttpClientOptions(
@@ -476,6 +556,7 @@ class SdkJellyfinRepository internal constructor(
                                 id = item.id.toString(),
                                 name = item.name.orEmpty(),
                                 type = item.type.name,
+                                playbackPositionTicks = item.userData?.playbackPositionTicks ?: 0,
                             )
                         },
                     totalRecordCount = response.totalRecordCount,
@@ -495,16 +576,7 @@ class SdkJellyfinRepository internal constructor(
                     api.mediaInfoApi
                         .getPostedPlaybackInfo(
                             itemId = itemId,
-                            data =
-                                PlaybackInfoDto(
-                                    userId = request.userId,
-                                    deviceProfile = PLAYBACK_DEVICE_PROFILE,
-                                    enableDirectPlay = true,
-                                    enableDirectStream = true,
-                                    enableTranscoding = true,
-                                    allowVideoStreamCopy = true,
-                                    allowAudioStreamCopy = true,
-                                ),
+                            data = request.toPlaybackInfoDto(PLAYBACK_DEVICE_PROFILE),
                         ).content
                 SdkPlaybackInfo(
                     playSessionId = response.playSessionId,
@@ -547,6 +619,27 @@ class SdkJellyfinRepository internal constructor(
                 )
             }
 
+        fun createPlaybackReportProvider(jellyfin: Jellyfin): JellyfinPlaybackReportProvider =
+            JellyfinPlaybackReportProvider { request ->
+                val sessionApi =
+                    jellyfin
+                        .createApi(
+                            baseUrl = request.serverUrl,
+                            accessToken = request.accessToken,
+                            httpClientOptions = HTTP_CLIENT_OPTIONS,
+                        ).sessionApi
+                when (request.report.kind) {
+                    JellyfinPlaybackReportKind.Start ->
+                        sessionApi.reportPlaybackStart(request.report.toPlaybackStartInfo())
+
+                    JellyfinPlaybackReportKind.Progress ->
+                        sessionApi.reportPlaybackProgress(request.report.toPlaybackProgressInfo())
+
+                    JellyfinPlaybackReportKind.Stop ->
+                        sessionApi.reportPlaybackStopped(request.report.toPlaybackStopInfo())
+                }
+            }
+
         val PLAYABLE_ITEM_TYPES =
             listOf(
                 BaseItemKind.MOVIE,
@@ -574,3 +667,63 @@ class SdkJellyfinRepository internal constructor(
             }
     }
 }
+
+internal fun SdkPlaybackInfoRequest.toPlaybackInfoDto(deviceProfile: DeviceProfile): PlaybackInfoDto =
+    PlaybackInfoDto(
+        userId = userId,
+        startTimeTicks = item.playbackPositionTicks.coerceAtLeast(0),
+        deviceProfile = deviceProfile,
+        enableDirectPlay = true,
+        enableDirectStream = true,
+        enableTranscoding = true,
+        allowVideoStreamCopy = true,
+        allowAudioStreamCopy = true,
+    )
+
+internal fun JellyfinPlaybackReport.toPlaybackStartInfo(): PlaybackStartInfo =
+    PlaybackStartInfo(
+        canSeek = isSeekable,
+        itemId = UUID.fromString(itemId),
+        mediaSourceId = mediaSourceId,
+        isPaused = isPaused,
+        isMuted = false,
+        positionTicks = positionMs.toTicks(),
+        playMethod = method.toSdkPlayMethod(),
+        playSessionId = playSessionId,
+        repeatMode = RepeatMode.REPEAT_NONE,
+        playbackOrder = PlaybackOrder.DEFAULT,
+    )
+
+internal fun JellyfinPlaybackReport.toPlaybackProgressInfo(): PlaybackProgressInfo =
+    PlaybackProgressInfo(
+        canSeek = isSeekable,
+        itemId = UUID.fromString(itemId),
+        mediaSourceId = mediaSourceId,
+        isPaused = isPaused,
+        isMuted = false,
+        positionTicks = positionMs.toTicks(),
+        playMethod = method.toSdkPlayMethod(),
+        playSessionId = playSessionId,
+        repeatMode = RepeatMode.REPEAT_NONE,
+        playbackOrder = PlaybackOrder.DEFAULT,
+    )
+
+internal fun JellyfinPlaybackReport.toPlaybackStopInfo(): PlaybackStopInfo =
+    PlaybackStopInfo(
+        itemId = UUID.fromString(itemId),
+        mediaSourceId = mediaSourceId,
+        positionTicks = positionMs.toTicks(),
+        playSessionId = playSessionId,
+        failed = failed,
+    )
+
+private fun Long.toTicks(): Long =
+    coerceAtLeast(0)
+        .coerceAtMost(Long.MAX_VALUE / 10_000L) * 10_000L
+
+private fun PlaybackMethod.toSdkPlayMethod(): PlayMethod =
+    when (this) {
+        PlaybackMethod.DIRECT_PLAY -> PlayMethod.DIRECT_PLAY
+        PlaybackMethod.DIRECT_STREAM -> PlayMethod.DIRECT_STREAM
+        PlaybackMethod.TRANSCODE -> PlayMethod.TRANSCODE
+    }

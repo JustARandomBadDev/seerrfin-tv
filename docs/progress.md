@@ -2,10 +2,10 @@
 
 ## Current status
 
-**P02.2 PASS on `dev`** — a negotiated P02.1 source now opens a foreground
-Media3 player with video output, MediaSession integration, play/pause, bounded
-10-second seeking, D-pad and media-key handling, safe playback errors, and Back
-navigation that releases the player and restores the libraries screen.
+**P02.3 PASS on `dev`** — Media3 playback now reports ordered start, progress,
+pause heartbeat, replay, failure and stop state to Jellyfin, and a real
+transcoded movie resumes from the server position while preserving the P02.2
+remote controls, buffering intent, cleanup and library focus restoration.
 
 ## Completed tasks
 
@@ -35,6 +35,47 @@ navigation that releases the player and restores the libraries screen.
 - `P02.2` — screen-owned Media3 playback, foreground MediaSession, TV remote
   play/pause/seek controls, bounded streaming timeout, safe errors, and player
   lifecycle cleanup on Back.
+- `P02.3` — Jellyfin playback start/progress/stop reporting, server-aware
+  transcode resume negotiation, Media3 initial positioning, ordered best-effort
+  delivery, pause heartbeats, and replay reporting.
+
+## P02.3 verification — PASS (2026-11-15)
+
+- Context7 confirmed the Jellyfin SDK 1.9.4 playback-report DTOs and Session API,
+  plus Media3 1.11.1 initial-position playback. The official Jellyfin Android
+  TV client confirmed start/progress/stop fields, tick conversion, active and
+  paused reporting cadence, and final-position reporting; no GPL code was
+  copied.
+- Playable-item user data now carries Jellyfin resume ticks into the app-owned
+  source. The same position is supplied to `PlaybackInfoDto.startTimeTicks` so
+  the server prepares a resume-aware transcode, and to Media3 before `prepare()`
+  so direct and transcoded sources start on the expected timeline.
+- The player ViewModel serializes reports through one redacted best-effort
+  queue: start occurs only after the player becomes active, progress is sent
+  every 3 seconds while playing and every 15 seconds while paused, state
+  transitions report immediately, final stop is unique, and replay after end
+  opens a new ordered start/stop sequence. Reporting failures do not replace
+  safe player state or interrupt playback.
+- Focused tests cover resume propagation and negotiation, SDK DTO mapping,
+  authenticated reporting and error mapping, ordered start/progress/pause/stop,
+  paused heartbeats, failure stop, replay, consecutive player attachment,
+  initial seek bounds, and private-session delegation.
+- The complete `:app:testDebugUnitTest :app:assembleDebug` validation passed
+  108 tests with no failures or errors and produced the debug APK with JDK 17.
+- The final APK installed with `-r` on the authorized Android 14
+  `Smart_TV_Pro`, preserving the encrypted session. D-pad Center paused at
+  00:00 during transcode preparation and remained paused after preparation;
+  playback resumed, Right sought by 10 seconds, and Back stopped at the visible
+  position while restoring one focused library action.
+- A near-start 00:18 sample was below the server's effective resume policy and
+  returned to 00:00. The real validation was repeated at 06:00: Back reported
+  stop, a new library resolution obtained the updated server position, and the
+  same transcode resumed exactly at 06:00.
+- After Back, Seerrfin had no active MediaSession (only Android's audio-playback
+  history retained its package), and a second Back resumed the TV launcher.
+  Process-scoped logs contained no fatal exception or URL, authorization,
+  bearer, access-token, password, or API-key markers. Temporary captures and
+  logs were removed.
 
 ## P02.2 verification — PASS (2026-11-15)
 
@@ -260,5 +301,5 @@ will be checked against the target deployment.
 
 ## Next task
 
-`P02.3` — report playback progress, stop, and resume to Jellyfin. It has not
+`P03.1` — home rows, library filtering, loading and error states. It has not
 been started and requires a new explicit request.

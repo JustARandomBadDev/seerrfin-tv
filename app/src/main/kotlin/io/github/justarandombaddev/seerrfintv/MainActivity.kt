@@ -57,6 +57,7 @@ class MainActivity : ComponentActivity() {
                     PlayerRoute(
                         source = playbackSource,
                         createEngine = container::createPlaybackEngine,
+                        reportPlayback = librariesViewModel::reportPlayback,
                         onBack = librariesViewModel::closePlayer,
                     )
                 } else {
