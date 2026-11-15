@@ -2,10 +2,10 @@
 
 ## Current status
 
-**P02.3 PASS on `dev`** — Media3 playback now reports ordered start, progress,
-pause heartbeat, replay, failure and stop state to Jellyfin, and a real
-transcoded movie resumes from the server position while preserving the P02.2
-remote controls, buffering intent, cleanup and library focus restoration.
+**P03.1 PASS on `dev`** — the restored Jellyfin session now loads bounded home
+rows for supported video libraries, filters rows by library with TV focus, and
+exposes loading, empty, retryable error and exact-item playback paths while
+preserving the P01/P02 connection, session and player behavior.
 
 ## Completed tasks
 
@@ -38,6 +38,40 @@ remote controls, buffering intent, cleanup and library focus restoration.
 - `P02.3` — Jellyfin playback start/progress/stop reporting, server-aware
   transcode resume negotiation, Media3 initial positioning, ordered best-effort
   delivery, pause heartbeats, and replay reporting.
+- `P03.1` — bounded recent-media home rows, supported video-library filtering,
+  remote-focusable filters and cards, catalogue loading/empty/error states, and
+  exact selected-item playback through the existing P02 pipeline.
+
+## P03.1 verification — PASS (2026-11-15)
+
+- Context7 confirmed the Jellyfin Kotlin SDK 1.9.4 `LibraryApi.getItems` and
+  `GetItemsRequest` fields used for user-scoped parent filtering, media kinds,
+  descending creation-date sorting, bounded results and user resume data.
+- Only Movies, TV Shows and Home Videos user views enter the catalogue. Each
+  non-empty library exposes at most 20 recent Movie, Series or Video app-owned
+  items; malformed identities or payloads and SDK/network/authentication
+  failures map to the existing safe, retryable states.
+- The TV home exposes `Tout` plus one filter per non-empty library and one
+  horizontal D-pad row per selected library. Movie and Video cards negotiate
+  the exact selected item through the existing P02 source selector; Series are
+  visible but deliberately do not open details before P03.2.
+- Focused RED/GREEN tests cover supported-library filtering, bounded SDK row
+  requests and mapping, omission of empty rows, local filter behavior, empty
+  and error states, exact-item playback and suppression of Series/double
+  activation. The complete `:app:testDebugUnitTest :app:assembleDebug` command
+  passed 116 tests and produced the debug APK with JDK 17; `git diff --check`
+  passed.
+- The final APK installed with `-r` on the authorized Android 14
+  `Smart_TV_Pro`, preserving the encrypted session. Initial focus entered
+  `Tout`; Right selected the real library filter, Down entered the first card,
+  Right moved and horizontally scrolled to the next card, and Center opened
+  the exact selected real movie. Its transcode prepared and rendered real
+  video, confirming the P02 player remained functional.
+- Back stopped playback, retained the selected library filter and restored one
+  visible focus target; a second Back returned to the TV launcher. Process
+  logs contained no crash or sensitive URL/authorization/token/password/API-key
+  markers. Temporary screenshots and UI dumps containing personal catalogue
+  data were removed.
 
 ## P02.3 verification — PASS (2026-11-15)
 
@@ -301,5 +335,5 @@ will be checked against the target deployment.
 
 ## Next task
 
-`P03.1` — home rows, library filtering, loading and error states. It has not
-been started and requires a new explicit request.
+`P03.2` — media detail, episodes and season navigation. It has not been started
+and requires a new explicit request.

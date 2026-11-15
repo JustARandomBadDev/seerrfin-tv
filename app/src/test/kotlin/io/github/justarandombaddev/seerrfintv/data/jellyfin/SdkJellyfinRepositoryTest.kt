@@ -2,10 +2,14 @@ package io.github.justarandombaddev.seerrfintv.data.jellyfin
 
 import io.github.justarandombaddev.seerrfintv.domain.repository.JellyfinAuthenticationResult
 import io.github.justarandombaddev.seerrfintv.domain.repository.JellyfinConnectionResult
+import io.github.justarandombaddev.seerrfintv.domain.repository.JellyfinHomeResult
 import io.github.justarandombaddev.seerrfintv.domain.repository.JellyfinLibrariesResult
 import io.github.justarandombaddev.seerrfintv.domain.repository.JellyfinPlaybackResolutionResult
 import io.github.justarandombaddev.seerrfintv.domain.repository.JellyfinPlaybackReportResult
 import io.github.justarandombaddev.seerrfintv.domain.model.JellyfinLibrary
+import io.github.justarandombaddev.seerrfintv.domain.model.JellyfinCatalogItem
+import io.github.justarandombaddev.seerrfintv.domain.model.JellyfinCatalogItemType
+import io.github.justarandombaddev.seerrfintv.domain.model.JellyfinHomeRow
 import io.github.justarandombaddev.seerrfintv.domain.model.JellyfinPlaybackReport
 import io.github.justarandombaddev.seerrfintv.domain.model.JellyfinPlaybackReportKind
 import io.github.justarandombaddev.seerrfintv.domain.model.JellyfinSession
@@ -20,12 +24,129 @@ import org.jellyfin.sdk.api.client.exception.InvalidStatusException
 import org.jellyfin.sdk.api.client.exception.SecureConnectionException
 import org.jellyfin.sdk.api.client.exception.TimeoutException
 import org.jellyfin.sdk.model.api.PublicSystemInfo
+import org.jellyfin.sdk.model.api.BaseItemKind
 import org.jellyfin.sdk.model.deviceprofile.buildDeviceProfile
 import org.junit.Assert.assertEquals
 import org.junit.Assert.fail
 import org.junit.Test
 
 class SdkJellyfinRepositoryTest {
+    @Test
+    fun `home rows query supported libraries with bounded media types and map items`() =
+        runTest {
+            val requests = mutableListOf<SdkHomeItemsRequest>()
+            val repository =
+                repositoryWithHome { request ->
+                    requests += request
+                    listOf(
+                        SdkCatalogItem(
+                            id = "00000000-0000-0000-0000-000000000100",
+                            name = if (request.itemTypes == listOf(BaseItemKind.MOVIE)) "Example Movie" else "Example Series",
+                            type = request.itemTypes.single().name,
+                            productionYear = 2026,
+                            playbackPositionTicks = 120_000,
+                        ),
+                    )
+                }
+            val movies = JellyfinLibrary(TEST_LIBRARY_ID, "Films", "MOVIES")
+            val shows = JellyfinLibrary("00000000-0000-0000-0000-000000000011", "Séries", "TVSHOWS")
+            val music = JellyfinLibrary("00000000-0000-0000-0000-000000000012", "Musique", "MUSIC")
+
+            val result = repository.fetchHomeRows(TEST_SERVER_URL, testSession(), listOf(movies, shows, music))
+
+            assertEquals(
+                listOf(
+                    HomeRequestSummary(TEST_LIBRARY_ID, listOf(BaseItemKind.MOVIE), 20),
+                    HomeRequestSummary(shows.id, listOf(BaseItemKind.SERIES), 20),
+                ),
+                requests.map { HomeRequestSummary(it.libraryId.toString(), it.itemTypes, it.limit) },
+            )
+            assertEquals(
+                JellyfinHomeResult.Success(
+                    listOf(
+                        JellyfinHomeRow(
+                            movies,
+                            listOf(
+                                JellyfinCatalogItem(
+                                    id = "00000000-0000-0000-0000-000000000100",
+                                    name = "Example Movie",
+                                    type = JellyfinCatalogItemType.Movie,
+                                    productionYear = 2026,
+                                    playbackPositionTicks = 120_000,
+                                ),
+                            ),
+                        ),
+                        JellyfinHomeRow(
+                            shows,
+                            listOf(
+                                JellyfinCatalogItem(
+                                    id = "00000000-0000-0000-0000-000000000100",
+                                    name = "Example Series",
+                                    type = JellyfinCatalogItemType.Series,
+                                    productionYear = 2026,
+                                    playbackPositionTicks = 120_000,
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+                result,
+            )
+        }
+
+    @Test
+    fun `selected catalog movie resolves that exact item with its resume position`() =
+        runTest {
+            val requests = mutableListOf<SdkPlaybackInfoRequest>()
+            val repository =
+                repositoryWithPlayback(
+                    itemProvider = { error("Library scan must not run for a selected catalog item") },
+                    playbackProvider = { request ->
+                        requests += request
+                        playbackInfo(
+                            playbackCandidate(
+                                supportsDirectPlay = true,
+                                directPlayUrl = "https://media.example.test/video.mp4",
+                            ),
+                        )
+                    },
+                )
+            val item =
+                JellyfinCatalogItem(
+                    id = "00000000-0000-0000-0000-000000000100",
+                    name = "Chosen Movie",
+                    type = JellyfinCatalogItemType.Movie,
+                    playbackPositionTicks = 123_450_000,
+                )
+
+            val result = repository.resolvePlaybackItem(TEST_SERVER_URL, testSession(), item)
+
+            assertEquals(JellyfinPlaybackResolutionResult.Success::class, result::class)
+            assertEquals(
+                SdkPlayableItem(
+                    id = item.id,
+                    name = item.name,
+                    type = "MOVIE",
+                    playbackPositionTicks = 123_450_000,
+                ),
+                requests.single().item,
+            )
+        }
+
+    @Test
+    fun `empty supported library is omitted from home rows`() =
+        runTest {
+            val repository = repositoryWithHome { emptyList() }
+
+            val result =
+                repository.fetchHomeRows(
+                    TEST_SERVER_URL,
+                    testSession(),
+                    listOf(JellyfinLibrary(TEST_LIBRARY_ID, "Films", "MOVIES")),
+                )
+
+            assertEquals(JellyfinHomeResult.Success(emptyList()), result)
+        }
     @Test
     fun `valid Jellyfin identity is accepted`() =
         runTest {
@@ -672,6 +793,18 @@ class SdkJellyfinRepositoryTest {
             playbackInfoProvider = JellyfinPlaybackInfoProvider { playbackInfo() },
         )
 
+    private fun repositoryWithHome(
+        provider: JellyfinHomeItemProvider,
+    ): SdkJellyfinRepository =
+        SdkJellyfinRepository(
+            probe = JellyfinServerProbe { PublicSystemInfo() },
+            authenticator = JellyfinUserAuthenticator { _, _, _ -> error("Not used by home tests") },
+            libraryProvider = JellyfinLibraryProvider { _, _, _ -> emptyList() },
+            playableItemProvider = JellyfinPlayableItemProvider { SdkPlayableItemPage(emptyList(), 0) },
+            playbackInfoProvider = JellyfinPlaybackInfoProvider { playbackInfo() },
+            homeItemProvider = provider,
+        )
+
     private fun repositoryWithPlayback(
         pageSize: Int = 50,
         itemProvider: JellyfinPlayableItemProvider =
@@ -778,4 +911,10 @@ private data class LibraryCall(
     val serverUrl: String,
     val accessToken: String,
     val userId: UUID,
+)
+
+private data class HomeRequestSummary(
+    val libraryId: String,
+    val itemTypes: List<BaseItemKind>,
+    val limit: Int,
 )

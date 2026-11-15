@@ -6,10 +6,12 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
@@ -26,13 +28,17 @@ import androidx.tv.material3.Button
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import io.github.justarandombaddev.seerrfintv.R
+import io.github.justarandombaddev.seerrfintv.domain.model.JellyfinLibrary
+import io.github.justarandombaddev.seerrfintv.domain.model.JellyfinCatalogItem
+import io.github.justarandombaddev.seerrfintv.domain.model.JellyfinCatalogItemType
 import io.github.justarandombaddev.seerrfintv.domain.model.PlaybackMethod
 
 @Composable
 fun JellyfinLibrariesScreen(
     state: JellyfinLibrariesUiState,
     onRetry: () -> Unit,
-    onLibraryActivated: (String) -> Unit,
+    onLibrarySelected: (String?) -> Unit,
+    onItemActivated: (JellyfinCatalogItem) -> Unit,
 ) {
     val initialFocusRequester = remember { FocusRequester() }
 
@@ -48,7 +54,7 @@ fun JellyfinLibrariesScreen(
 
     Column(
         modifier = Modifier.fillMaxSize().padding(horizontal = 72.dp, vertical = 48.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
+        horizontalAlignment = Alignment.Start,
     ) {
         Text(
             text = stringResource(R.string.libraries_title),
@@ -100,11 +106,10 @@ fun JellyfinLibrariesScreen(
                     modifier =
                         Modifier
                             .padding(top = 32.dp)
-                            .widthIn(max = 840.dp)
                             .fillMaxWidth()
                             .focusGroup(),
                     contentPadding = PaddingValues(vertical = 8.dp),
-                    verticalArrangement = Arrangement.spacedBy(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(24.dp),
                 ) {
                     item(key = "playback-resolution") {
                         Text(
@@ -114,27 +119,56 @@ fun JellyfinLibrariesScreen(
                             fontSize = 20.sp,
                         )
                     }
-                    itemsIndexed(
-                        items = state.libraries,
-                        key = { _, library -> library.id },
-                    ) { index, library ->
-                        val focusModifier =
-                            if (index == 0) {
-                                Modifier.focusRequester(initialFocusRequester)
-                            } else {
-                                Modifier
-                            }
-                        Button(
-                            onClick = {
-                                libraryActivationRequest(state, library.id)?.let(onLibraryActivated)
-                            },
-                            modifier = focusModifier.fillMaxWidth(),
-                        ) {
+                    item(key = "library-filters") {
+                        LibraryFilters(
+                            libraries = state.libraries,
+                            selectedLibraryId = state.selectedLibraryId,
+                            initialFocusRequester = initialFocusRequester,
+                            onLibrarySelected = onLibrarySelected,
+                        )
+                    }
+                    items(
+                        items = state.visibleHomeRows,
+                        key = { row -> row.library.id },
+                    ) { row ->
+                        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                             Text(
-                                text = library.name,
-                                modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp),
-                                fontSize = 24.sp,
+                                text = row.library.name,
+                                color = MaterialTheme.colorScheme.onBackground,
+                                fontSize = 26.sp,
+                                fontWeight = FontWeight.SemiBold,
                             )
+                            LazyRow(
+                                modifier = Modifier.fillMaxWidth().focusGroup(),
+                                horizontalArrangement = Arrangement.spacedBy(16.dp),
+                                contentPadding = PaddingValues(horizontal = 4.dp),
+                            ) {
+                                items(
+                                    items = row.items,
+                                    key = JellyfinCatalogItem::id,
+                                ) { item ->
+                                    Button(
+                                        onClick = {
+                                            catalogItemActivationRequest(state, item)?.let(onItemActivated)
+                                        },
+                                        modifier = Modifier.widthIn(min = 220.dp, max = 280.dp).height(112.dp),
+                                    ) {
+                                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                            Text(
+                                                text = item.name,
+                                                fontSize = 20.sp,
+                                                fontWeight = FontWeight.SemiBold,
+                                                maxLines = 2,
+                                            )
+                                            Text(
+                                                text = catalogItemMetadata(item),
+                                                color = Color(0xFFCBD5E1),
+                                                fontSize = 16.sp,
+                                            )
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -143,14 +177,59 @@ fun JellyfinLibrariesScreen(
     }
 }
 
-internal fun libraryActivationRequest(
-    state: JellyfinLibrariesUiState,
-    libraryId: String,
-): String? =
-    libraryId.takeIf {
-        state.status == LibrariesStatus.Success &&
-            state.playbackStatus != PlaybackResolutionStatus.Loading
+@Composable
+private fun LibraryFilters(
+    libraries: List<JellyfinLibrary>,
+    selectedLibraryId: String?,
+    initialFocusRequester: FocusRequester,
+    onLibrarySelected: (String?) -> Unit,
+) {
+    LazyRow(
+        modifier = Modifier.fillMaxWidth().focusGroup(),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        item(key = "all") {
+            Button(
+                onClick = { onLibrarySelected(null) },
+                modifier = Modifier.focusRequester(initialFocusRequester),
+            ) {
+                Text(
+                    text = stringResource(R.string.home_filter_all),
+                    fontWeight = if (selectedLibraryId == null) FontWeight.Bold else FontWeight.Normal,
+                )
+            }
+        }
+        items(libraries, key = JellyfinLibrary::id) { library ->
+            Button(onClick = { onLibrarySelected(library.id) }) {
+                Text(
+                    text = library.name,
+                    fontWeight = if (selectedLibraryId == library.id) FontWeight.Bold else FontWeight.Normal,
+                )
+            }
+        }
     }
+}
+
+internal fun catalogItemActivationRequest(
+    state: JellyfinLibrariesUiState,
+    item: JellyfinCatalogItem,
+): JellyfinCatalogItem? =
+    item.takeIf { candidate ->
+        state.status == LibrariesStatus.Success &&
+            state.playbackStatus != PlaybackResolutionStatus.Loading &&
+            candidate.type != JellyfinCatalogItemType.Series &&
+            state.visibleHomeRows.any { row -> row.items.any { it.id == candidate.id } }
+    }
+
+private fun catalogItemMetadata(item: JellyfinCatalogItem): String {
+    val type =
+        when (item.type) {
+            JellyfinCatalogItemType.Movie -> "Film"
+            JellyfinCatalogItemType.Series -> "Série"
+            JellyfinCatalogItemType.Video -> "Vidéo"
+        }
+    return item.productionYear?.let { year -> "$type · $year" } ?: type
+}
 
 @Composable
 private fun playbackResolutionText(state: JellyfinLibrariesUiState): String =

@@ -3,10 +3,14 @@ package io.github.justarandombaddev.seerrfintv.feature.home
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import io.github.justarandombaddev.seerrfintv.domain.model.JellyfinLibrary
+import io.github.justarandombaddev.seerrfintv.domain.model.JellyfinCatalogItem
+import io.github.justarandombaddev.seerrfintv.domain.model.JellyfinCatalogItemType
+import io.github.justarandombaddev.seerrfintv.domain.model.JellyfinHomeRow
 import io.github.justarandombaddev.seerrfintv.domain.model.JellyfinPlaybackSource
 import io.github.justarandombaddev.seerrfintv.domain.model.JellyfinPlaybackReport
 import io.github.justarandombaddev.seerrfintv.domain.model.JellyfinSession
 import io.github.justarandombaddev.seerrfintv.domain.repository.JellyfinLibrariesResult
+import io.github.justarandombaddev.seerrfintv.domain.repository.JellyfinHomeResult
 import io.github.justarandombaddev.seerrfintv.domain.repository.JellyfinPlaybackResolutionResult
 import io.github.justarandombaddev.seerrfintv.domain.repository.JellyfinRepository
 import io.github.justarandombaddev.seerrfintv.domain.repository.ServerSettingsRepository
@@ -21,6 +25,11 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+
+private val SUPPORTED_CATALOG_COLLECTION_TYPES = setOf("MOVIES", "TVSHOWS", "HOMEVIDEOS")
+
+internal fun supportedCatalogLibraries(libraries: List<JellyfinLibrary>): List<JellyfinLibrary> =
+    libraries.filter { library -> library.collectionType in SUPPORTED_CATALOG_COLLECTION_TYPES }
 
 enum class LibrariesStatus {
     Restoring,
@@ -57,16 +66,22 @@ data class JellyfinLibrariesUiState(
     val status: LibrariesStatus = LibrariesStatus.Restoring,
     val serverUrl: String? = null,
     val libraries: List<JellyfinLibrary> = emptyList(),
+    val homeRows: List<JellyfinHomeRow> = emptyList(),
+    val selectedLibraryId: String? = null,
     val error: LibrariesUiError? = null,
     val sessionIssue: LibrariesSessionIssue? = null,
     val loginRequestId: Int = 0,
     val playbackStatus: PlaybackResolutionStatus = PlaybackResolutionStatus.Idle,
     val activeLibraryId: String? = null,
+    val activeItemId: String? = null,
     val playbackSource: JellyfinPlaybackSource? = null,
     val playbackError: LibrariesUiError? = null,
 ) {
     val isLoading: Boolean
         get() = status == LibrariesStatus.Restoring || status == LibrariesStatus.Loading
+
+    val visibleHomeRows: List<JellyfinHomeRow>
+        get() = selectedLibraryId?.let { selected -> homeRows.filter { it.library.id == selected } } ?: homeRows
 }
 
 class JellyfinLibrariesViewModel(
@@ -106,6 +121,13 @@ class JellyfinLibrariesViewModel(
         restoreAndLoad(state.serverUrl)
     }
 
+    fun selectLibrary(libraryId: String?) {
+        val state = mutableUiState.value
+        if (state.status != LibrariesStatus.Success) return
+        if (libraryId != null && state.libraries.none { it.id == libraryId }) return
+        mutableUiState.value = state.copy(selectedLibraryId = libraryId)
+    }
+
     fun resolveLibrary(libraryId: String) {
         val state = mutableUiState.value
         val serverUrl = state.serverUrl ?: return
@@ -137,6 +159,39 @@ class JellyfinLibrariesViewModel(
         }
     }
 
+    fun resolveItem(item: JellyfinCatalogItem) {
+        if (item.type == JellyfinCatalogItemType.Series) return
+        val state = mutableUiState.value
+        val serverUrl = state.serverUrl ?: return
+        val session = activeSession ?: return
+        if (
+            state.status != LibrariesStatus.Success ||
+            state.playbackStatus == PlaybackResolutionStatus.Loading ||
+            state.homeRows.none { row -> row.items.any { it.id == item.id } }
+        ) {
+            return
+        }
+        mutableUiState.value =
+            state.copy(
+                playbackStatus = PlaybackResolutionStatus.Loading,
+                activeLibraryId = null,
+                activeItemId = item.id,
+                playbackSource = null,
+                playbackError = null,
+            )
+        viewModelScope.launch(ioDispatcher) {
+            val result =
+                try {
+                    jellyfinRepository.resolvePlaybackItem(serverUrl, session, item)
+                } catch (error: CancellationException) {
+                    throw error
+                } catch (_: Exception) {
+                    JellyfinPlaybackResolutionResult.UnexpectedFailure
+                }
+            showPlaybackResolution(result)
+        }
+    }
+
     fun closePlayer() {
         val state = mutableUiState.value
         if (state.status != LibrariesStatus.Success || state.playbackSource == null) return
@@ -144,6 +199,7 @@ class JellyfinLibrariesViewModel(
             state.copy(
                 playbackStatus = PlaybackResolutionStatus.Idle,
                 activeLibraryId = null,
+                activeItemId = null,
                 playbackSource = null,
                 playbackError = null,
             )
@@ -230,17 +286,17 @@ class JellyfinLibrariesViewModel(
             }
         when (result) {
             is JellyfinLibrariesResult.Success -> {
-                mutableUiState.value =
-                    JellyfinLibrariesUiState(
-                        status =
-                            if (result.libraries.isEmpty()) {
-                                LibrariesStatus.Empty
-                            } else {
-                                LibrariesStatus.Success
-                            },
-                        serverUrl = serverUrl,
-                        libraries = result.libraries,
-                    )
+                val supportedLibraries = supportedCatalogLibraries(result.libraries)
+                if (supportedLibraries.isEmpty()) {
+                    mutableUiState.value =
+                        JellyfinLibrariesUiState(
+                            status = LibrariesStatus.Empty,
+                            serverUrl = serverUrl,
+                            libraries = emptyList(),
+                        )
+                } else {
+                    loadHomeRows(serverUrl, session, supportedLibraries)
+                }
             }
 
             JellyfinLibrariesResult.InvalidSession -> {
@@ -256,6 +312,44 @@ class JellyfinLibrariesViewModel(
             JellyfinLibrariesResult.ServerRejected -> showError(serverUrl, LibrariesUiError.ServerRejected)
             JellyfinLibrariesResult.InvalidResponse -> showError(serverUrl, LibrariesUiError.InvalidResponse)
             JellyfinLibrariesResult.UnexpectedFailure -> showError(serverUrl, LibrariesUiError.Unexpected)
+        }
+    }
+
+    private suspend fun loadHomeRows(
+        serverUrl: String,
+        session: JellyfinSession,
+        libraries: List<JellyfinLibrary>,
+    ) {
+        val result =
+            try {
+                jellyfinRepository.fetchHomeRows(serverUrl, session, libraries)
+            } catch (error: CancellationException) {
+                throw error
+            } catch (_: Exception) {
+                JellyfinHomeResult.UnexpectedFailure
+            }
+        when (result) {
+            is JellyfinHomeResult.Success ->
+                mutableUiState.value =
+                    JellyfinLibrariesUiState(
+                        status = if (result.rows.isEmpty()) LibrariesStatus.Empty else LibrariesStatus.Success,
+                        serverUrl = serverUrl,
+                        libraries = if (result.rows.isEmpty()) libraries else result.rows.map(JellyfinHomeRow::library),
+                        homeRows = result.rows,
+                    )
+
+            JellyfinHomeResult.InvalidSession -> {
+                activeSession = null
+                clearSessionIgnoringFailure()
+                showLogin(serverUrl, LibrariesSessionIssue.Expired)
+            }
+
+            JellyfinHomeResult.Unreachable -> showError(serverUrl, LibrariesUiError.Unreachable)
+            JellyfinHomeResult.SecureConnectionFailed ->
+                showError(serverUrl, LibrariesUiError.SecureConnection)
+            JellyfinHomeResult.ServerRejected -> showError(serverUrl, LibrariesUiError.ServerRejected)
+            JellyfinHomeResult.InvalidResponse -> showError(serverUrl, LibrariesUiError.InvalidResponse)
+            JellyfinHomeResult.UnexpectedFailure -> showError(serverUrl, LibrariesUiError.Unexpected)
         }
     }
 

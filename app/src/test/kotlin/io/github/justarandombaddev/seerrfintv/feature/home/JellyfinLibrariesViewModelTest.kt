@@ -1,6 +1,9 @@
 package io.github.justarandombaddev.seerrfintv.feature.home
 
 import io.github.justarandombaddev.seerrfintv.domain.model.JellyfinLibrary
+import io.github.justarandombaddev.seerrfintv.domain.model.JellyfinCatalogItem
+import io.github.justarandombaddev.seerrfintv.domain.model.JellyfinCatalogItemType
+import io.github.justarandombaddev.seerrfintv.domain.model.JellyfinHomeRow
 import io.github.justarandombaddev.seerrfintv.domain.model.JellyfinPlayableItem
 import io.github.justarandombaddev.seerrfintv.domain.model.JellyfinPlaybackReport
 import io.github.justarandombaddev.seerrfintv.domain.model.JellyfinPlaybackReportKind
@@ -10,6 +13,7 @@ import io.github.justarandombaddev.seerrfintv.domain.model.PlaybackMethod
 import io.github.justarandombaddev.seerrfintv.domain.repository.JellyfinAuthenticationResult
 import io.github.justarandombaddev.seerrfintv.domain.repository.JellyfinConnectionResult
 import io.github.justarandombaddev.seerrfintv.domain.repository.JellyfinLibrariesResult
+import io.github.justarandombaddev.seerrfintv.domain.repository.JellyfinHomeResult
 import io.github.justarandombaddev.seerrfintv.domain.repository.JellyfinPlaybackResolutionResult
 import io.github.justarandombaddev.seerrfintv.domain.repository.JellyfinPlaybackReportResult
 import io.github.justarandombaddev.seerrfintv.domain.repository.JellyfinRepository
@@ -34,6 +38,140 @@ import org.junit.Test
 class JellyfinLibrariesViewModelTest {
     @get:Rule
     val mainDispatcherRule = MainDispatcherRule()
+
+    @Test
+    fun `home loads supported library rows and filters them locally`() =
+        runTest(mainDispatcherRule.dispatcher) {
+            val movies = testLibrary()
+            val shows = JellyfinLibrary("00000000-0000-0000-0000-000000000011", "Séries", "TVSHOWS")
+            val music = JellyfinLibrary("00000000-0000-0000-0000-000000000012", "Musique", "MUSIC")
+            val movieRow = JellyfinHomeRow(movies, listOf(testCatalogItem()))
+            val showRow =
+                JellyfinHomeRow(
+                    shows,
+                    listOf(
+                        JellyfinCatalogItem(
+                            id = "00000000-0000-0000-0000-000000000101",
+                            name = "Example Series",
+                            type = JellyfinCatalogItemType.Series,
+                        ),
+                    ),
+                )
+            val repository =
+                FakeLibrariesRepository(
+                    result = JellyfinLibrariesResult.Success(listOf(movies, shows, music)),
+                    homeResult = JellyfinHomeResult.Success(listOf(movieRow, showRow)),
+                )
+            val viewModel = createViewModel(repository = repository)
+
+            advanceUntilIdle()
+
+            assertEquals(LibrariesStatus.Success, viewModel.uiState.value.status)
+            assertEquals(listOf(movieRow, showRow), viewModel.uiState.value.homeRows)
+            assertEquals(
+                listOf(HomeFetchCall(SERVER_URL, testSession(), listOf(movies, shows))),
+                repository.homeCalls,
+            )
+
+            viewModel.selectLibrary(shows.id)
+
+            assertEquals(shows.id, viewModel.uiState.value.selectedLibraryId)
+            assertEquals(listOf(showRow), viewModel.uiState.value.visibleHomeRows)
+            assertEquals(1, repository.homeCalls.size)
+        }
+
+    @Test
+    fun `catalog movie activation resolves the selected item and keeps home rows`() =
+        runTest(mainDispatcherRule.dispatcher) {
+            val item = testCatalogItem()
+            val row = JellyfinHomeRow(testLibrary(), listOf(item))
+            val repository =
+                FakeLibrariesRepository(
+                    result = JellyfinLibrariesResult.Success(listOf(testLibrary())),
+                    homeResult = JellyfinHomeResult.Success(listOf(row)),
+                    playbackResult = JellyfinPlaybackResolutionResult.Success(testPlaybackSource()),
+                )
+            val viewModel = createViewModel(repository = repository)
+            advanceUntilIdle()
+
+            viewModel.resolveItem(item)
+            advanceUntilIdle()
+
+            assertEquals(
+                listOf(PlaybackItemResolveCall(SERVER_URL, testSession(), item)),
+                repository.resolveItemCalls,
+            )
+            assertEquals(item.id, viewModel.uiState.value.activeItemId)
+            assertEquals(listOf(row), viewModel.uiState.value.homeRows)
+            assertEquals(PlaybackResolutionStatus.Ready, viewModel.uiState.value.playbackStatus)
+        }
+
+    @Test
+    fun `series activation does not start playback before details scope`() =
+        runTest(mainDispatcherRule.dispatcher) {
+            val series = testCatalogItem().copy(type = JellyfinCatalogItemType.Series)
+            val repository =
+                FakeLibrariesRepository(
+                    result = JellyfinLibrariesResult.Success(listOf(testLibrary())),
+                    homeResult = JellyfinHomeResult.Success(listOf(JellyfinHomeRow(testLibrary(), listOf(series)))),
+                )
+            val viewModel = createViewModel(repository = repository)
+            advanceUntilIdle()
+
+            viewModel.resolveItem(series)
+            advanceUntilIdle()
+
+            assertEquals(emptyList<PlaybackItemResolveCall>(), repository.resolveItemCalls)
+            assertEquals(PlaybackResolutionStatus.Idle, viewModel.uiState.value.playbackStatus)
+        }
+
+    @Test
+    fun `empty home rows expose retryable empty state`() =
+        runTest(mainDispatcherRule.dispatcher) {
+            val repository =
+                FakeLibrariesRepository(
+                    result = JellyfinLibrariesResult.Success(listOf(testLibrary())),
+                    homeResult = JellyfinHomeResult.Success(emptyList()),
+                )
+            val viewModel = createViewModel(repository = repository)
+
+            advanceUntilIdle()
+
+            assertEquals(LibrariesStatus.Empty, viewModel.uiState.value.status)
+            assertEquals(listOf(testLibrary()), viewModel.uiState.value.libraries)
+        }
+
+    @Test
+    fun `home failures expose retryable catalog errors without clearing session`() =
+        runTest(mainDispatcherRule.dispatcher) {
+            val cases =
+                listOf(
+                    JellyfinHomeResult.Unreachable to LibrariesUiError.Unreachable,
+                    JellyfinHomeResult.SecureConnectionFailed to LibrariesUiError.SecureConnection,
+                    JellyfinHomeResult.ServerRejected to LibrariesUiError.ServerRejected,
+                    JellyfinHomeResult.InvalidResponse to LibrariesUiError.InvalidResponse,
+                    JellyfinHomeResult.UnexpectedFailure to LibrariesUiError.Unexpected,
+                )
+
+            cases.forEach { (homeResult, expectedError) ->
+                val store = FakeSessionStore(restored(testSession()))
+                val viewModel =
+                    createViewModel(
+                        repository =
+                            FakeLibrariesRepository(
+                                result = JellyfinLibrariesResult.Success(listOf(testLibrary())),
+                                homeResult = homeResult,
+                            ),
+                        store = store,
+                    )
+
+                advanceUntilIdle()
+
+                assertEquals(LibrariesStatus.Error, viewModel.uiState.value.status)
+                assertEquals(expectedError, viewModel.uiState.value.error)
+                assertEquals(0, store.clearCalls)
+            }
+        }
 
     @Test
     fun `valid saved session is restored and libraries load automatically`() =
@@ -412,6 +550,14 @@ class JellyfinLibrariesViewModelTest {
                 collectionType = "MOVIES",
             )
 
+        fun testCatalogItem() =
+            JellyfinCatalogItem(
+                id = "00000000-0000-0000-0000-000000000100",
+                name = "Example Movie",
+                type = JellyfinCatalogItemType.Movie,
+                productionYear = 2026,
+            )
+
         fun restored(session: JellyfinSession) = JellyfinSessionRestoreResult.Restored(session)
 
         fun testPlaybackSource() =
@@ -449,10 +595,22 @@ private data class LibraryFetchCall(
     val session: JellyfinSession,
 )
 
+private data class HomeFetchCall(
+    val serverUrl: String,
+    val session: JellyfinSession,
+    val libraries: List<JellyfinLibrary>,
+)
+
 private data class PlaybackResolveCall(
     val serverUrl: String,
     val session: JellyfinSession,
     val libraryId: String,
+)
+
+private data class PlaybackItemResolveCall(
+    val serverUrl: String,
+    val session: JellyfinSession,
+    val item: JellyfinCatalogItem,
 )
 
 private data class PlaybackReportCall(
@@ -463,13 +621,16 @@ private data class PlaybackReportCall(
 
 private class FakeLibrariesRepository(
     var result: JellyfinLibrariesResult = JellyfinLibrariesResult.UnexpectedFailure,
+    var homeResult: JellyfinHomeResult? = null,
     var playbackResult: JellyfinPlaybackResolutionResult =
         JellyfinPlaybackResolutionResult.UnexpectedFailure,
     var playbackFailure: Throwable? = null,
     var beforePlaybackResult: suspend () -> Unit = {},
 ) : JellyfinRepository {
     val fetchCalls = mutableListOf<LibraryFetchCall>()
+    val homeCalls = mutableListOf<HomeFetchCall>()
     val resolveCalls = mutableListOf<PlaybackResolveCall>()
+    val resolveItemCalls = mutableListOf<PlaybackItemResolveCall>()
     val reportCalls = mutableListOf<PlaybackReportCall>()
 
     override suspend fun connect(serverUrl: String): JellyfinConnectionResult =
@@ -489,12 +650,47 @@ private class FakeLibrariesRepository(
         return result
     }
 
+    override suspend fun fetchHomeRows(
+        serverUrl: String,
+        session: JellyfinSession,
+        libraries: List<JellyfinLibrary>,
+    ): JellyfinHomeResult {
+        homeCalls += HomeFetchCall(serverUrl, session, libraries)
+        return homeResult
+            ?: JellyfinHomeResult.Success(
+                libraries.map { library ->
+                    JellyfinHomeRow(
+                        library = library,
+                        items =
+                            listOf(
+                                JellyfinCatalogItem(
+                                    id = "00000000-0000-0000-0000-000000000100",
+                                    name = "Example Movie",
+                                    type = JellyfinCatalogItemType.Movie,
+                                ),
+                            ),
+                    )
+                },
+            )
+    }
+
     override suspend fun resolvePlaybackSource(
         serverUrl: String,
         session: JellyfinSession,
         libraryId: String,
     ): JellyfinPlaybackResolutionResult {
         resolveCalls += PlaybackResolveCall(serverUrl, session, libraryId)
+        beforePlaybackResult()
+        playbackFailure?.let { throw it }
+        return playbackResult
+    }
+
+    override suspend fun resolvePlaybackItem(
+        serverUrl: String,
+        session: JellyfinSession,
+        item: JellyfinCatalogItem,
+    ): JellyfinPlaybackResolutionResult {
+        resolveItemCalls += PlaybackItemResolveCall(serverUrl, session, item)
         beforePlaybackResult()
         playbackFailure?.let { throw it }
         return playbackResult

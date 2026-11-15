@@ -119,7 +119,8 @@ class MainActivity : ComponentActivity() {
                             JellyfinLibrariesScreen(
                                 state = librariesState,
                                 onRetry = librariesViewModel::retry,
-                                onLibraryActivated = librariesViewModel::resolveLibrary,
+                                onLibrarySelected = librariesViewModel::selectLibrary,
+                                onItemActivated = librariesViewModel::resolveItem,
                             )
                     }
                 }

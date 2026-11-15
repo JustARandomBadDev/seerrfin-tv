@@ -4,6 +4,9 @@ import java.util.concurrent.CancellationException
 import java.util.UUID
 import kotlin.time.Duration.Companion.seconds
 import io.github.justarandombaddev.seerrfintv.domain.model.JellyfinLibrary
+import io.github.justarandombaddev.seerrfintv.domain.model.JellyfinCatalogItem
+import io.github.justarandombaddev.seerrfintv.domain.model.JellyfinCatalogItemType
+import io.github.justarandombaddev.seerrfintv.domain.model.JellyfinHomeRow
 import io.github.justarandombaddev.seerrfintv.domain.model.JellyfinPlayableItem
 import io.github.justarandombaddev.seerrfintv.domain.model.JellyfinPlaybackReport
 import io.github.justarandombaddev.seerrfintv.domain.model.JellyfinPlaybackReportKind
@@ -12,6 +15,7 @@ import io.github.justarandombaddev.seerrfintv.domain.model.PlaybackMethod
 import io.github.justarandombaddev.seerrfintv.domain.repository.JellyfinAuthenticationResult
 import io.github.justarandombaddev.seerrfintv.domain.repository.JellyfinConnectionResult
 import io.github.justarandombaddev.seerrfintv.domain.repository.JellyfinLibrariesResult
+import io.github.justarandombaddev.seerrfintv.domain.repository.JellyfinHomeResult
 import io.github.justarandombaddev.seerrfintv.domain.repository.JellyfinPlaybackResolutionResult
 import io.github.justarandombaddev.seerrfintv.domain.repository.JellyfinPlaybackReportResult
 import io.github.justarandombaddev.seerrfintv.domain.repository.JellyfinRepository
@@ -118,6 +122,31 @@ fun interface JellyfinPlayableItemProvider {
     suspend fun getPage(request: SdkPlayableItemsRequest): SdkPlayableItemPage
 }
 
+data class SdkHomeItemsRequest(
+    val serverUrl: String,
+    val accessToken: String,
+    val userId: UUID,
+    val libraryId: UUID,
+    val itemTypes: List<BaseItemKind>,
+    val limit: Int,
+) {
+    override fun toString(): String = "SdkHomeItemsRequest(<redacted>)"
+}
+
+data class SdkCatalogItem(
+    val id: String,
+    val name: String,
+    val type: String,
+    val productionYear: Int?,
+    val playbackPositionTicks: Long,
+) {
+    override fun toString(): String = "SdkCatalogItem(<redacted>)"
+}
+
+fun interface JellyfinHomeItemProvider {
+    suspend fun getLatestItems(request: SdkHomeItemsRequest): List<SdkCatalogItem>
+}
+
 data class SdkPlaybackInfoRequest(
     val serverUrl: String,
     val accessToken: String,
@@ -157,6 +186,7 @@ class SdkJellyfinRepository internal constructor(
     private val libraryProvider: JellyfinLibraryProvider,
     private val playableItemProvider: JellyfinPlayableItemProvider,
     private val playbackInfoProvider: JellyfinPlaybackInfoProvider,
+    private val homeItemProvider: JellyfinHomeItemProvider = JellyfinHomeItemProvider { emptyList() },
     private val playbackReportProvider: JellyfinPlaybackReportProvider = JellyfinPlaybackReportProvider {},
     private val playbackPageSize: Int = PLAYBACK_PAGE_SIZE,
 ) : JellyfinRepository {
@@ -166,6 +196,7 @@ class SdkJellyfinRepository internal constructor(
         libraryProvider = createLibraryProvider(jellyfin),
         playableItemProvider = createPlayableItemProvider(jellyfin),
         playbackInfoProvider = createPlaybackInfoProvider(jellyfin),
+        homeItemProvider = createHomeItemProvider(jellyfin),
         playbackReportProvider = createPlaybackReportProvider(jellyfin),
     )
 
@@ -285,6 +316,59 @@ class SdkJellyfinRepository internal constructor(
         }
     }
 
+    override suspend fun fetchHomeRows(
+        serverUrl: String,
+        session: JellyfinSession,
+        libraries: List<JellyfinLibrary>,
+    ): JellyfinHomeResult {
+        if (
+            serverUrl.isBlank() ||
+            session.accessToken.isBlank() ||
+            session.userId.isBlank() ||
+            session.serverId.isBlank()
+        ) {
+            return JellyfinHomeResult.InvalidSession
+        }
+        val userId = session.userId.toUuidOrNull() ?: return JellyfinHomeResult.InvalidSession
+
+        return try {
+            val rows =
+                libraries.mapNotNull { library ->
+                    val itemTypes = library.catalogItemTypes() ?: return@mapNotNull null
+                    val libraryId = library.id.toUuidOrNull() ?: return JellyfinHomeResult.InvalidResponse
+                    val items =
+                        homeItemProvider
+                            .getLatestItems(
+                                SdkHomeItemsRequest(
+                                    serverUrl = serverUrl,
+                                    accessToken = session.accessToken,
+                                    userId = userId,
+                                    libraryId = libraryId,
+                                    itemTypes = itemTypes,
+                                    limit = HOME_ROW_ITEM_LIMIT,
+                                ),
+                            ).map { item -> item.toCatalogItem() ?: return JellyfinHomeResult.InvalidResponse }
+                    if (items.isEmpty()) return@mapNotNull null
+                    JellyfinHomeRow(library = library, items = items)
+                }
+            JellyfinHomeResult.Success(rows)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: InvalidStatusException) {
+            if (error.status == HTTP_UNAUTHORIZED) JellyfinHomeResult.InvalidSession else JellyfinHomeResult.ServerRejected
+        } catch (_: TimeoutException) {
+            JellyfinHomeResult.Unreachable
+        } catch (_: SecureConnectionException) {
+            JellyfinHomeResult.SecureConnectionFailed
+        } catch (_: InvalidContentException) {
+            JellyfinHomeResult.InvalidResponse
+        } catch (_: ApiClientException) {
+            JellyfinHomeResult.UnexpectedFailure
+        } catch (_: Exception) {
+            JellyfinHomeResult.UnexpectedFailure
+        }
+    }
+
     override suspend fun resolvePlaybackSource(
         serverUrl: String,
         session: JellyfinSession,
@@ -308,6 +392,64 @@ class SdkJellyfinRepository internal constructor(
                 userId = userId,
                 libraryId = parsedLibraryId,
             )
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: InvalidStatusException) {
+            if (error.status == HTTP_UNAUTHORIZED) {
+                JellyfinPlaybackResolutionResult.InvalidSession
+            } else {
+                JellyfinPlaybackResolutionResult.ServerRejected
+            }
+        } catch (_: TimeoutException) {
+            JellyfinPlaybackResolutionResult.Unreachable
+        } catch (_: SecureConnectionException) {
+            JellyfinPlaybackResolutionResult.SecureConnectionFailed
+        } catch (_: InvalidContentException) {
+            JellyfinPlaybackResolutionResult.InvalidResponse
+        } catch (_: ApiClientException) {
+            JellyfinPlaybackResolutionResult.UnexpectedFailure
+        } catch (_: Exception) {
+            JellyfinPlaybackResolutionResult.UnexpectedFailure
+        }
+    }
+
+    override suspend fun resolvePlaybackItem(
+        serverUrl: String,
+        session: JellyfinSession,
+        item: JellyfinCatalogItem,
+    ): JellyfinPlaybackResolutionResult {
+        if (
+            serverUrl.isBlank() ||
+            session.accessToken.isBlank() ||
+            session.userId.isBlank() ||
+            session.serverId.isBlank()
+        ) {
+            return JellyfinPlaybackResolutionResult.InvalidSession
+        }
+        val userId = session.userId.toUuidOrNull() ?: return JellyfinPlaybackResolutionResult.InvalidSession
+        if (item.id.toUuidOrNull() == null || item.name.isBlank() || item.playbackPositionTicks < 0) {
+            return JellyfinPlaybackResolutionResult.InvalidResponse
+        }
+        val sdkType =
+            when (item.type) {
+                JellyfinCatalogItemType.Movie -> BaseItemKind.MOVIE.name
+                JellyfinCatalogItemType.Video -> BaseItemKind.VIDEO.name
+                JellyfinCatalogItemType.Series -> return JellyfinPlaybackResolutionResult.Empty
+            }
+
+        return try {
+            resolvePlayableItem(
+                serverUrl = serverUrl,
+                session = session,
+                userId = userId,
+                item =
+                    SdkPlayableItem(
+                        id = item.id,
+                        name = item.name,
+                        type = sdkType,
+                        playbackPositionTicks = item.playbackPositionTicks,
+                    ),
+            ) ?: JellyfinPlaybackResolutionResult.Empty
         } catch (error: CancellationException) {
             throw error
         } catch (error: InvalidStatusException) {
@@ -410,30 +552,7 @@ class SdkJellyfinRepository internal constructor(
                 ) {
                     return JellyfinPlaybackResolutionResult.InvalidResponse
                 }
-                val playbackInfo =
-                    playbackInfoProvider.getPlaybackInfo(
-                        SdkPlaybackInfoRequest(
-                            serverUrl = serverUrl,
-                            accessToken = session.accessToken,
-                            userId = userId,
-                            item = sdkItem,
-                        ),
-                    )
-                if (playbackInfo.errorCode == null) {
-                    val source =
-                        PlaybackSourceSelector.select(
-                            item =
-                                JellyfinPlayableItem(
-                                    id = sdkItem.id,
-                                    name = sdkItem.name,
-                                    type = sdkItem.type,
-                                    resumePositionMs = sdkItem.playbackPositionTicks.coerceAtLeast(0) / TICKS_PER_MILLISECOND,
-                                ),
-                            playSessionId = playbackInfo.playSessionId,
-                            sources = playbackInfo.sources,
-                        )
-                    if (source != null) return JellyfinPlaybackResolutionResult.Success(source)
-                }
+                resolvePlayableItem(serverUrl, session, userId, sdkItem)?.let { return it }
             }
 
             val nextIndex = startIndex + page.items.size
@@ -445,12 +564,69 @@ class SdkJellyfinRepository internal constructor(
         }
     }
 
+    private suspend fun resolvePlayableItem(
+        serverUrl: String,
+        session: JellyfinSession,
+        userId: UUID,
+        item: SdkPlayableItem,
+    ): JellyfinPlaybackResolutionResult.Success? {
+        val playbackInfo =
+            playbackInfoProvider.getPlaybackInfo(
+                SdkPlaybackInfoRequest(
+                    serverUrl = serverUrl,
+                    accessToken = session.accessToken,
+                    userId = userId,
+                    item = item,
+                ),
+            )
+        if (playbackInfo.errorCode != null) return null
+        val source =
+            PlaybackSourceSelector.select(
+                item =
+                    JellyfinPlayableItem(
+                        id = item.id,
+                        name = item.name,
+                        type = item.type,
+                        resumePositionMs = item.playbackPositionTicks.coerceAtLeast(0) / TICKS_PER_MILLISECOND,
+                    ),
+                playSessionId = playbackInfo.playSessionId,
+                sources = playbackInfo.sources,
+            ) ?: return null
+        return JellyfinPlaybackResolutionResult.Success(source)
+    }
+
     private fun String.toUuidOrNull(): UUID? =
         try {
             UUID.fromString(this)
         } catch (_: IllegalArgumentException) {
             null
         }
+
+    private fun JellyfinLibrary.catalogItemTypes(): List<BaseItemKind>? =
+        when (collectionType) {
+            "MOVIES" -> listOf(BaseItemKind.MOVIE)
+            "TVSHOWS" -> listOf(BaseItemKind.SERIES)
+            "HOMEVIDEOS" -> listOf(BaseItemKind.VIDEO, BaseItemKind.MOVIE)
+            else -> null
+        }
+
+    private fun SdkCatalogItem.toCatalogItem(): JellyfinCatalogItem? {
+        val mappedType =
+            when (type) {
+                BaseItemKind.MOVIE.name -> JellyfinCatalogItemType.Movie
+                BaseItemKind.SERIES.name -> JellyfinCatalogItemType.Series
+                BaseItemKind.VIDEO.name -> JellyfinCatalogItemType.Video
+                else -> return null
+            }
+        if (id.toUuidOrNull() == null || name.isBlank() || playbackPositionTicks < 0) return null
+        return JellyfinCatalogItem(
+            id = id,
+            name = name,
+            type = mappedType,
+            productionYear = productionYear,
+            playbackPositionTicks = playbackPositionTicks,
+        )
+    }
 
     private fun PublicSystemInfo.isJellyfinServer(): Boolean =
         productName.equals(JELLYFIN_PRODUCT_NAME, ignoreCase = true) && !version.isNullOrBlank()
@@ -465,6 +641,7 @@ class SdkJellyfinRepository internal constructor(
         const val JELLYFIN_PRODUCT_NAME = "Jellyfin Server"
         const val HTTP_UNAUTHORIZED = 401
         const val PLAYBACK_PAGE_SIZE = 50
+        const val HOME_ROW_ITEM_LIMIT = 20
         const val TICKS_PER_MILLISECOND = 10_000L
 
         val HTTP_CLIENT_OPTIONS =
@@ -561,6 +738,42 @@ class SdkJellyfinRepository internal constructor(
                         },
                     totalRecordCount = response.totalRecordCount,
                 )
+            }
+
+        fun createHomeItemProvider(jellyfin: Jellyfin): JellyfinHomeItemProvider =
+            JellyfinHomeItemProvider { request ->
+                jellyfin
+                    .createApi(
+                        baseUrl = request.serverUrl,
+                        accessToken = request.accessToken,
+                        httpClientOptions = HTTP_CLIENT_OPTIONS,
+                    ).libraryApi
+                    .getItems(
+                        request =
+                            GetItemsRequest(
+                                userId = request.userId,
+                                limit = request.limit,
+                                recursive = true,
+                                sortOrder = listOf(SortOrder.DESCENDING),
+                                parentId = request.libraryId,
+                                includeItemTypes = request.itemTypes,
+                                filters = listOf(ItemFilter.IS_NOT_FOLDER),
+                                isMissing = false,
+                                sortBy = listOf(ItemSortBy.DATE_CREATED),
+                                enableUserData = true,
+                                enableTotalRecordCount = false,
+                                enableImages = false,
+                            ),
+                    ).content.items
+                    .map { item ->
+                        SdkCatalogItem(
+                            id = item.id.toString(),
+                            name = item.name.orEmpty(),
+                            type = item.type.name,
+                            productionYear = item.productionYear,
+                            playbackPositionTicks = item.userData?.playbackPositionTicks ?: 0,
+                        )
+                    }
             }
 
         fun createPlaybackInfoProvider(jellyfin: Jellyfin): JellyfinPlaybackInfoProvider =

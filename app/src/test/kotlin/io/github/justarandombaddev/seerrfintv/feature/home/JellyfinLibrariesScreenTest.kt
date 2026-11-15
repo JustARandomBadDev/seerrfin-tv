@@ -1,36 +1,56 @@
 package io.github.justarandombaddev.seerrfintv.feature.home
 
+import io.github.justarandombaddev.seerrfintv.domain.model.JellyfinLibrary
+import io.github.justarandombaddev.seerrfintv.domain.model.JellyfinCatalogItem
+import io.github.justarandombaddev.seerrfintv.domain.model.JellyfinCatalogItemType
+import io.github.justarandombaddev.seerrfintv.domain.model.JellyfinHomeRow
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
 
 class JellyfinLibrariesScreenTest {
     @Test
-    fun `stable library content accepts direct activation`() {
-        val state =
-            JellyfinLibrariesUiState(
-                status = LibrariesStatus.Success,
-                playbackStatus = PlaybackResolutionStatus.Idle,
+    fun `home keeps only video libraries supported by the catalog`() {
+        val libraries =
+            listOf(
+                JellyfinLibrary("movies", "Films", "MOVIES"),
+                JellyfinLibrary("shows", "Séries", "TVSHOWS"),
+                JellyfinLibrary("videos", "Vidéos", "HOMEVIDEOS"),
+                JellyfinLibrary("music", "Musique", "MUSIC"),
+                JellyfinLibrary("photos", "Photos", "PHOTOS"),
+                JellyfinLibrary("unknown", "Dossiers", null),
             )
 
-        assertEquals("library-id", libraryActivationRequest(state, "library-id"))
+        assertEquals(
+            listOf("movies", "shows", "videos"),
+            supportedCatalogLibraries(libraries).map(JellyfinLibrary::id),
+        )
     }
 
     @Test
-    fun `activation is suppressed during resolution or outside library content`() {
+    fun `stable home activates only a playable visible catalog item`() {
+        val movie = JellyfinCatalogItem("movie", "Movie", JellyfinCatalogItemType.Movie)
+        val series = JellyfinCatalogItem("series", "Series", JellyfinCatalogItemType.Series)
+        val library = JellyfinLibrary("movies", "Films", "MOVIES")
+        val state =
+            JellyfinLibrariesUiState(
+                status = LibrariesStatus.Success,
+                libraries = listOf(library),
+                homeRows = listOf(JellyfinHomeRow(library, listOf(movie, series))),
+            )
+
+        assertEquals(movie, catalogItemActivationRequest(state, movie))
+        assertNull(catalogItemActivationRequest(state, series))
         assertNull(
-            libraryActivationRequest(
-                JellyfinLibrariesUiState(
-                    status = LibrariesStatus.Success,
-                    playbackStatus = PlaybackResolutionStatus.Loading,
-                ),
-                "library-id",
+            catalogItemActivationRequest(
+                state.copy(playbackStatus = PlaybackResolutionStatus.Loading),
+                movie,
             ),
         )
         assertNull(
-            libraryActivationRequest(
-                JellyfinLibrariesUiState(status = LibrariesStatus.Loading),
-                "library-id",
+            catalogItemActivationRequest(
+                state.copy(selectedLibraryId = "other"),
+                movie,
             ),
         )
     }

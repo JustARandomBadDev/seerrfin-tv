@@ -1,6 +1,8 @@
 package io.github.justarandombaddev.seerrfintv.domain.repository
 
 import io.github.justarandombaddev.seerrfintv.domain.model.JellyfinLibrary
+import io.github.justarandombaddev.seerrfintv.domain.model.JellyfinCatalogItem
+import io.github.justarandombaddev.seerrfintv.domain.model.JellyfinHomeRow
 import io.github.justarandombaddev.seerrfintv.domain.model.JellyfinPlaybackSource
 import io.github.justarandombaddev.seerrfintv.domain.model.JellyfinPlaybackReport
 import io.github.justarandombaddev.seerrfintv.domain.model.JellyfinSession
@@ -19,17 +21,45 @@ interface JellyfinRepository {
         session: JellyfinSession,
     ): JellyfinLibrariesResult
 
+    suspend fun fetchHomeRows(
+        serverUrl: String,
+        session: JellyfinSession,
+        libraries: List<JellyfinLibrary>,
+    ): JellyfinHomeResult = JellyfinHomeResult.UnexpectedFailure
+
     suspend fun resolvePlaybackSource(
         serverUrl: String,
         session: JellyfinSession,
         libraryId: String,
     ): JellyfinPlaybackResolutionResult
 
+    suspend fun resolvePlaybackItem(
+        serverUrl: String,
+        session: JellyfinSession,
+        item: JellyfinCatalogItem,
+    ): JellyfinPlaybackResolutionResult = JellyfinPlaybackResolutionResult.UnexpectedFailure
+
     suspend fun reportPlayback(
         serverUrl: String,
         session: JellyfinSession,
         report: JellyfinPlaybackReport,
     ): JellyfinPlaybackReportResult = JellyfinPlaybackReportResult.UnexpectedFailure
+}
+
+sealed interface JellyfinHomeResult {
+    data class Success(val rows: List<JellyfinHomeRow>) : JellyfinHomeResult
+
+    data object InvalidSession : JellyfinHomeResult
+
+    data object Unreachable : JellyfinHomeResult
+
+    data object SecureConnectionFailed : JellyfinHomeResult
+
+    data object ServerRejected : JellyfinHomeResult
+
+    data object InvalidResponse : JellyfinHomeResult
+
+    data object UnexpectedFailure : JellyfinHomeResult
 }
 
 sealed interface JellyfinPlaybackReportResult {
