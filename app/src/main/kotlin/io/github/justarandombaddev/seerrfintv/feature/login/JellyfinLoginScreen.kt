@@ -45,6 +45,11 @@ import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import io.github.justarandombaddev.seerrfintv.R
 
+enum class JellyfinLoginNotice {
+    SessionExpired,
+    SessionUnreadable,
+}
+
 @Composable
 fun JellyfinLoginScreen(
     state: JellyfinLoginUiState,
@@ -52,6 +57,7 @@ fun JellyfinLoginScreen(
     onPasswordChanged: (String) -> Unit,
     onLogin: () -> Unit,
     onBack: () -> Unit,
+    notice: JellyfinLoginNotice? = null,
 ) {
     BackHandler(onBack = onBack)
 
@@ -143,7 +149,7 @@ fun JellyfinLoginScreen(
         }
 
         Text(
-            text = loginStatusText(state),
+            text = loginStatusText(state, notice),
             modifier = Modifier.padding(top = 26.dp),
             color = if (state.status == JellyfinLoginStatus.Error) Color(0xFFFCA5A5) else Color(0xFF7DD3FC),
             fontSize = 20.sp,
@@ -239,9 +245,17 @@ private fun AuthenticatedContent(displayName: String) {
 }
 
 @Composable
-private fun loginStatusText(state: JellyfinLoginUiState): String =
+private fun loginStatusText(
+    state: JellyfinLoginUiState,
+    notice: JellyfinLoginNotice?,
+): String =
     when (state.status) {
-        JellyfinLoginStatus.Idle -> stringResource(R.string.login_help)
+        JellyfinLoginStatus.Idle ->
+            when (notice) {
+                JellyfinLoginNotice.SessionExpired -> stringResource(R.string.login_notice_session_expired)
+                JellyfinLoginNotice.SessionUnreadable -> stringResource(R.string.login_notice_session_unreadable)
+                null -> stringResource(R.string.login_help)
+            }
         JellyfinLoginStatus.Loading -> stringResource(R.string.login_progress)
         JellyfinLoginStatus.Authenticated -> ""
         JellyfinLoginStatus.Error ->

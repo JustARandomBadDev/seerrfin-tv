@@ -15,6 +15,24 @@ Seerrfin TV: a native Android TV application that combines Jellyfin playback and
 - Jellyfin is required; Seerr should be optional after the initial MVP.
 - Keep dependency versions compatible and pinned in a version catalog once configured.
 
+## Jellyfin implementation reference
+
+Seerrfin TV remains an independent Kotlin + Jetpack Compose for TV application;
+it is not a fork of Jellyfin Android TV. The official reference client is
+<https://github.com/jellyfin/jellyfin-androidtv>.
+
+Before implementing a complex Jellyfin feature, especially video playback,
+subtitles, audio tracks, transcoding, or playback resume:
+
+- First examine the corresponding implementation in the official client.
+- Prefer compatible official SDKs and libraries.
+- Build on proven solutions instead of unnecessarily reinventing mechanisms.
+- Adapt the design to Seerrfin TV rather than automatically importing the
+  official client's architecture.
+- Do not copy GPL-licensed code into this project without first reviewing the
+  licensing implications and redistribution obligations.
+- Skip this research for simple functionality already covered by the SDK.
+
 ## Security
 
 - Never add service tokens, credentials, local IPs, personal library data or keys to Git.

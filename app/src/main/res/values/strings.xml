@@ -37,4 +37,16 @@
     <string name="login_error_response">Réponse d’authentification Jellyfin invalide.</string>
     <string name="login_error_storage">Connexion réussie, mais la session n’a pas pu être sécurisée.</string>
     <string name="login_error_unexpected">Erreur inattendue. Réessayez.</string>
+    <string name="login_notice_session_expired">Votre session a expiré ou a été révoquée. Reconnectez-vous.</string>
+    <string name="login_notice_session_unreadable">La session locale était illisible et a été effacée. Reconnectez-vous.</string>
+    <string name="libraries_title">Bibliothèques Jellyfin</string>
+    <string name="libraries_subtitle">Contenu accessible avec votre compte</string>
+    <string name="libraries_loading">Restauration de la session et chargement…</string>
+    <string name="libraries_empty">Aucune bibliothèque accessible.</string>
+    <string name="libraries_retry">Réessayer</string>
+    <string name="libraries_error_unreachable">Serveur inaccessible. Vérifiez le réseau et réessayez.</string>
+    <string name="libraries_error_tls">Connexion HTTPS refusée. Vérifiez le certificat du serveur.</string>
+    <string name="libraries_error_server">Le serveur a refusé la requête. Réessayez.</string>
+    <string name="libraries_error_response">La réponse des bibliothèques Jellyfin est invalide.</string>
+    <string name="libraries_error_unexpected">Impossible de charger les bibliothèques. Réessayez.</string>
 </resources>

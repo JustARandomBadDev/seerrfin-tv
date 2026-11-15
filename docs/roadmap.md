@@ -16,7 +16,7 @@ Each task has a concrete completion condition. Do not advance to the next milest
 
 - [x] P01.1 Configure server URL and network error handling.
 - [x] P01.2 Implement supported user login and secure local session handling.
-- [ ] P01.3 Fetch libraries via official SDK and support session restoration.
+- [x] P01.3 Fetch libraries via official SDK and support session restoration.
 
 **Exit:** real test account signs in and lists libraries without committing secrets.
 

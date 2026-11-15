@@ -2,10 +2,10 @@
 
 ## Current status
 
-**P01.2 PASS on `dev`** — the Android TV app authenticates Jellyfin users
-through the official SDK, exposes a remote-friendly login flow, and stores the
-minimal session as Android-Keystore-encrypted ciphertext. Session restoration
-and library loading have not started.
+**P01.3 PASS on `dev`** — the Android TV app restores its encrypted Jellyfin
+session, initializes an authenticated SDK client, and lists the accessible
+libraries in a remote-friendly screen. Missing, unreadable, invalid, and
+revoked sessions return to login without exposing session material.
 
 ## Completed tasks
 
@@ -26,6 +26,38 @@ and library loading have not started.
 - `P01.2` — username/password authentication through Jellyfin Kotlin SDK 1.9.4,
   TV-focused login UI, app-owned failure mapping, and encrypted local session
   persistence backed by Android Keystore AES-GCM.
+- `P01.3` — encrypted-session restoration, authenticated Jellyfin SDK 1.9.4
+  client initialization, user-view library loading, retry/error/empty states,
+  and D-pad-focused Android TV rendering.
+
+## P01.3 verification — PASS (2026-11-15)
+
+- Context7 and the resolved 1.9.4 artifacts confirmed authenticated
+  `createApi(baseUrl, accessToken)` construction and `UserViewApi.getUserViews`
+  for the restored user UUID. The repository maps SDK DTOs to app-owned library
+  models without exposing tokens or personal payloads to logs.
+- Session restoration distinguishes missing, restored, and unreadable encrypted
+  records. Corrupt or unreadable records are cleared; HTTP 401 and malformed
+  restored identities clear the invalid session and request a fresh login.
+  Network, TLS, other HTTP, response, cancellation, empty, and success paths
+  have focused coverage.
+- The full `:app:testDebugUnitTest :app:assembleDebug` validation passed 58
+  unit tests with no failures and produced the debug APK with JDK 17.
+- The APK installed with `-r` on the authorized Android 14 `Smart_TV_Pro`,
+  preserving app data. After a complete process stop, the P01.2 encrypted
+  session restored directly to the real accessible libraries without asking
+  for credentials. Initial focus, D-pad Down/Up movement with scrolling, Back
+  to the TV launcher, relaunch, and one focused element were verified.
+- A temporary debug fixture replaced only the local encrypted session with
+  random invalid values while the original ciphertext remained backed up in
+  private app storage. The real server returned 401, the app cleared the active
+  record, and the login screen displayed the expired/revoked notice. The final
+  APK was then reinstalled, the original ciphertext restored with the same
+  SHA-256 hash and mode `600`, the temporary backup removed, and the libraries
+  loaded again.
+- Final process-scoped logs contained no fatal exception and no authorization,
+  token, or password markers. Temporary UI dumps, screenshots, and the fixture
+  workspace were removed.
 
 ## P01.2 verification — PASS (2026-11-15)
 
@@ -152,6 +184,5 @@ will be checked against the target deployment.
 
 ## Next task
 
-`P01.3` — fetch libraries through the official SDK and restore the encrypted
-Jellyfin session. P01.2 is validated, so P01.3 may start after review of the
-current uncommitted changes.
+`P02.1` — resolve a playable Jellyfin item and obtain an appropriate playback
+source. Do not start it without a new explicit request.

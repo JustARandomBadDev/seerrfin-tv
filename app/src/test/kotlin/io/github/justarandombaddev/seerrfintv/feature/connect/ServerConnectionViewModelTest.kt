@@ -3,7 +3,9 @@ package io.github.justarandombaddev.seerrfintv.feature.connect
 import io.github.justarandombaddev.seerrfintv.data.jellyfin.ServerUrlNormalizer
 import io.github.justarandombaddev.seerrfintv.domain.repository.JellyfinConnectionResult
 import io.github.justarandombaddev.seerrfintv.domain.repository.JellyfinAuthenticationResult
+import io.github.justarandombaddev.seerrfintv.domain.repository.JellyfinLibrariesResult
 import io.github.justarandombaddev.seerrfintv.domain.repository.JellyfinRepository
+import io.github.justarandombaddev.seerrfintv.domain.model.JellyfinSession
 import io.github.justarandombaddev.seerrfintv.domain.repository.ServerSettingsRepository
 import io.github.justarandombaddev.seerrfintv.test.MainDispatcherRule
 import kotlinx.coroutines.CompletableDeferred
@@ -164,6 +166,11 @@ private class FakeJellyfinRepository(
         username: String,
         password: String,
     ): JellyfinAuthenticationResult = JellyfinAuthenticationResult.UnexpectedFailure
+
+    override suspend fun fetchLibraries(
+        serverUrl: String,
+        session: JellyfinSession,
+    ): JellyfinLibrariesResult = JellyfinLibrariesResult.UnexpectedFailure
 }
 
 private class FakeServerSettingsRepository(initialUrl: String? = null) : ServerSettingsRepository {

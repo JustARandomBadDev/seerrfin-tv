@@ -1,6 +1,7 @@
 package io.github.justarandombaddev.seerrfintv.data.session
 
 import io.github.justarandombaddev.seerrfintv.domain.model.JellyfinSession
+import io.github.justarandombaddev.seerrfintv.domain.session.JellyfinSessionRestoreResult
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -18,7 +19,7 @@ class EncryptedJellyfinSessionStoreTest {
 
             store.save(session)
 
-            assertEquals(session, store.load())
+            assertEquals(JellyfinSessionRestoreResult.Restored(session), store.restore())
             val persisted = requireNotNull(storage.value)
             assertFalse(persisted.contains(session.accessToken))
             assertFalse(persisted.contains(session.userId))
@@ -51,7 +52,7 @@ class EncryptedJellyfinSessionStoreTest {
 
             store.save(replacement)
 
-            assertEquals(replacement, store.load())
+            assertEquals(JellyfinSessionRestoreResult.Restored(replacement), store.restore())
         }
 
     @Test
@@ -63,8 +64,16 @@ class EncryptedJellyfinSessionStoreTest {
 
             store.clear()
 
-            assertNull(store.load())
+            assertEquals(JellyfinSessionRestoreResult.Missing, store.restore())
             assertNull(storage.value)
+        }
+
+    @Test
+    fun `missing record is distinguished from unreadable session`() =
+        runTest {
+            val store = EncryptedJellyfinSessionStore(FakeEncryptedSessionStorage(), ReversingSessionCipher())
+
+            assertEquals(JellyfinSessionRestoreResult.Missing, store.restore())
         }
 
     @Test
@@ -73,7 +82,7 @@ class EncryptedJellyfinSessionStoreTest {
             val storage = FakeEncryptedSessionStorage(value = "not-an-encrypted-session")
             val store = EncryptedJellyfinSessionStore(storage, ReversingSessionCipher())
 
-            assertNull(store.load())
+            assertEquals(JellyfinSessionRestoreResult.Unreadable, store.restore())
             assertNull(storage.value)
             assertTrue(storage.clearCalls > 0)
         }
@@ -99,8 +108,18 @@ class EncryptedJellyfinSessionStoreTest {
                         },
                 )
 
-            assertNull(store.load())
+            assertEquals(JellyfinSessionRestoreResult.Unreadable, store.restore())
             assertNull(storage.value)
+            assertEquals(1, storage.clearCalls)
+        }
+
+    @Test
+    fun `storage read failure is cleared and reported as unreadable`() =
+        runTest {
+            val storage = FakeEncryptedSessionStorage(readFailure = IllegalStateException("storage unavailable"))
+            val store = EncryptedJellyfinSessionStore(storage, ReversingSessionCipher())
+
+            assertEquals(JellyfinSessionRestoreResult.Unreadable, store.restore())
             assertEquals(1, storage.clearCalls)
         }
 
@@ -114,11 +133,15 @@ class EncryptedJellyfinSessionStoreTest {
 
 private class FakeEncryptedSessionStorage(
     var value: String? = null,
+    private val readFailure: Exception? = null,
 ) : EncryptedSessionStorage {
     var clearCalls: Int = 0
         private set
 
-    override fun read(): String? = value
+    override fun read(): String? {
+        readFailure?.let { throw it }
+        return value
+    }
 
     override fun write(value: String) {
         this.value = value

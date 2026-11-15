@@ -3,8 +3,10 @@ package io.github.justarandombaddev.seerrfintv.feature.login
 import io.github.justarandombaddev.seerrfintv.domain.model.JellyfinSession
 import io.github.justarandombaddev.seerrfintv.domain.repository.JellyfinAuthenticationResult
 import io.github.justarandombaddev.seerrfintv.domain.repository.JellyfinConnectionResult
+import io.github.justarandombaddev.seerrfintv.domain.repository.JellyfinLibrariesResult
 import io.github.justarandombaddev.seerrfintv.domain.repository.JellyfinRepository
 import io.github.justarandombaddev.seerrfintv.domain.session.JellyfinSessionStore
+import io.github.justarandombaddev.seerrfintv.domain.session.JellyfinSessionRestoreResult
 import io.github.justarandombaddev.seerrfintv.test.MainDispatcherRule
 import java.io.IOException
 import kotlinx.coroutines.CompletableDeferred
@@ -190,6 +192,11 @@ private class FakeLoginJellyfinRepository(
         gate?.await()
         return result
     }
+
+    override suspend fun fetchLibraries(
+        serverUrl: String,
+        session: JellyfinSession,
+    ): JellyfinLibrariesResult = JellyfinLibrariesResult.UnexpectedFailure
 }
 
 private class FakeJellyfinSessionStore(
@@ -202,7 +209,9 @@ private class FakeJellyfinSessionStore(
         savedSessions += session
     }
 
-    override suspend fun load(): JellyfinSession? = savedSessions.lastOrNull()
+    override suspend fun restore(): JellyfinSessionRestoreResult =
+        savedSessions.lastOrNull()?.let(JellyfinSessionRestoreResult::Restored)
+            ?: JellyfinSessionRestoreResult.Missing
 
     override suspend fun clear() {
         savedSessions.clear()

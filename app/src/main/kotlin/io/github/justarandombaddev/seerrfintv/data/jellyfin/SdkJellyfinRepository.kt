@@ -1,10 +1,13 @@
 package io.github.justarandombaddev.seerrfintv.data.jellyfin
 
 import java.util.concurrent.CancellationException
+import java.util.UUID
 import kotlin.time.Duration.Companion.seconds
+import io.github.justarandombaddev.seerrfintv.domain.model.JellyfinLibrary
 import io.github.justarandombaddev.seerrfintv.domain.model.JellyfinSession
 import io.github.justarandombaddev.seerrfintv.domain.repository.JellyfinAuthenticationResult
 import io.github.justarandombaddev.seerrfintv.domain.repository.JellyfinConnectionResult
+import io.github.justarandombaddev.seerrfintv.domain.repository.JellyfinLibrariesResult
 import io.github.justarandombaddev.seerrfintv.domain.repository.JellyfinRepository
 import org.jellyfin.sdk.Jellyfin
 import org.jellyfin.sdk.api.client.HttpClientOptions
@@ -16,6 +19,7 @@ import org.jellyfin.sdk.api.client.exception.TimeoutException
 import org.jellyfin.sdk.api.client.extensions.authenticateUserByName
 import org.jellyfin.sdk.api.client.extensions.authenticationApi
 import org.jellyfin.sdk.api.client.extensions.systemApi
+import org.jellyfin.sdk.api.client.extensions.userViewApi
 import org.jellyfin.sdk.model.api.PublicSystemInfo
 
 fun interface JellyfinServerProbe {
@@ -39,13 +43,29 @@ fun interface JellyfinUserAuthenticator {
     ): SdkAuthenticationSession
 }
 
+data class SdkJellyfinLibrary(
+    val id: String,
+    val name: String,
+    val collectionType: String?,
+)
+
+fun interface JellyfinLibraryProvider {
+    suspend fun getUserViews(
+        serverUrl: String,
+        accessToken: String,
+        userId: UUID,
+    ): List<SdkJellyfinLibrary>
+}
+
 class SdkJellyfinRepository internal constructor(
     private val probe: JellyfinServerProbe,
     private val authenticator: JellyfinUserAuthenticator,
+    private val libraryProvider: JellyfinLibraryProvider,
 ) : JellyfinRepository {
     constructor(jellyfin: Jellyfin) : this(
         probe = createProbe(jellyfin),
         authenticator = createAuthenticator(jellyfin),
+        libraryProvider = createLibraryProvider(jellyfin),
     )
 
     override suspend fun connect(serverUrl: String): JellyfinConnectionResult =
@@ -108,6 +128,62 @@ class SdkJellyfinRepository internal constructor(
             JellyfinAuthenticationResult.UnexpectedFailure
         }
 
+    override suspend fun fetchLibraries(
+        serverUrl: String,
+        session: JellyfinSession,
+    ): JellyfinLibrariesResult {
+        if (
+            serverUrl.isBlank() ||
+            session.accessToken.isBlank() ||
+            session.userId.isBlank() ||
+            session.serverId.isBlank()
+        ) {
+            return JellyfinLibrariesResult.InvalidSession
+        }
+        val userId =
+            try {
+                UUID.fromString(session.userId)
+            } catch (_: IllegalArgumentException) {
+                return JellyfinLibrariesResult.InvalidSession
+            }
+
+        return try {
+            val libraries =
+                libraryProvider
+                    .getUserViews(serverUrl, session.accessToken, userId)
+                    .map { library ->
+                        JellyfinLibrary(
+                            id = library.id,
+                            name = library.name,
+                            collectionType = library.collectionType,
+                        )
+                    }
+            if (libraries.any { library -> library.id.isBlank() || library.name.isBlank() }) {
+                JellyfinLibrariesResult.InvalidResponse
+            } else {
+                JellyfinLibrariesResult.Success(libraries)
+            }
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: InvalidStatusException) {
+            if (error.status == HTTP_UNAUTHORIZED) {
+                JellyfinLibrariesResult.InvalidSession
+            } else {
+                JellyfinLibrariesResult.ServerRejected
+            }
+        } catch (_: TimeoutException) {
+            JellyfinLibrariesResult.Unreachable
+        } catch (_: SecureConnectionException) {
+            JellyfinLibrariesResult.SecureConnectionFailed
+        } catch (_: InvalidContentException) {
+            JellyfinLibrariesResult.InvalidResponse
+        } catch (_: ApiClientException) {
+            JellyfinLibrariesResult.UnexpectedFailure
+        } catch (_: Exception) {
+            JellyfinLibrariesResult.UnexpectedFailure
+        }
+    }
+
     private fun PublicSystemInfo.isJellyfinServer(): Boolean =
         productName.equals(JELLYFIN_PRODUCT_NAME, ignoreCase = true) && !version.isNullOrBlank()
 
@@ -155,6 +231,26 @@ class SdkJellyfinRepository internal constructor(
                     serverId = authentication.serverId ?: authentication.user?.serverId.orEmpty(),
                     displayName = authentication.user?.name?.takeIf(String::isNotBlank) ?: username,
                 )
+            }
+
+        fun createLibraryProvider(jellyfin: Jellyfin): JellyfinLibraryProvider =
+            JellyfinLibraryProvider { serverUrl, accessToken, userId ->
+                jellyfin
+                    .createApi(
+                        baseUrl = serverUrl,
+                        accessToken = accessToken,
+                        httpClientOptions = HTTP_CLIENT_OPTIONS,
+                    ).userViewApi
+                    .getUserViews(userId = userId)
+                    .content
+                    .items
+                    .map { item ->
+                        SdkJellyfinLibrary(
+                            id = item.id.toString(),
+                            name = item.name.orEmpty(),
+                            collectionType = item.collectionType?.name,
+                        )
+                    }
             }
     }
 }

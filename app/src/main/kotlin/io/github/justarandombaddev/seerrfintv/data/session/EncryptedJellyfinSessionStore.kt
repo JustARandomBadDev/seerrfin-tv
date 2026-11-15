@@ -3,6 +3,7 @@ package io.github.justarandombaddev.seerrfintv.data.session
 import android.content.Context
 import io.github.justarandombaddev.seerrfintv.domain.model.JellyfinSession
 import io.github.justarandombaddev.seerrfintv.domain.session.JellyfinSessionStore
+import io.github.justarandombaddev.seerrfintv.domain.session.JellyfinSessionRestoreResult
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.io.DataInputStream
@@ -50,19 +51,19 @@ class EncryptedJellyfinSessionStore internal constructor(
         storage.write(EncryptedSessionRecord.encode(encrypted))
     }
 
-    override suspend fun load(): JellyfinSession? {
-        val record = storage.read() ?: return null
+    override suspend fun restore(): JellyfinSessionRestoreResult {
         return try {
+            val record = storage.read() ?: return JellyfinSessionRestoreResult.Missing
             val encrypted = EncryptedSessionRecord.decode(record)
             val plaintext = cipher.decrypt(encrypted, ASSOCIATED_DATA)
-            JellyfinSessionCodec.decode(plaintext)
+            JellyfinSessionRestoreResult.Restored(JellyfinSessionCodec.decode(plaintext))
         } catch (_: Exception) {
             try {
                 storage.clear()
             } catch (_: Exception) {
                 // A corrupt session is never returned even when cleanup itself fails.
             }
-            null
+            JellyfinSessionRestoreResult.Unreadable
         }
     }
 

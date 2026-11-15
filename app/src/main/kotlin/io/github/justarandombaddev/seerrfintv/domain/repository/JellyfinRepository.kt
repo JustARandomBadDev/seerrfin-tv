@@ -1,5 +1,6 @@
 package io.github.justarandombaddev.seerrfintv.domain.repository
 
+import io.github.justarandombaddev.seerrfintv.domain.model.JellyfinLibrary
 import io.github.justarandombaddev.seerrfintv.domain.model.JellyfinSession
 
 interface JellyfinRepository {
@@ -10,6 +11,27 @@ interface JellyfinRepository {
         username: String,
         password: String,
     ): JellyfinAuthenticationResult
+
+    suspend fun fetchLibraries(
+        serverUrl: String,
+        session: JellyfinSession,
+    ): JellyfinLibrariesResult
+}
+
+sealed interface JellyfinLibrariesResult {
+    data class Success(val libraries: List<JellyfinLibrary>) : JellyfinLibrariesResult
+
+    data object InvalidSession : JellyfinLibrariesResult
+
+    data object Unreachable : JellyfinLibrariesResult
+
+    data object SecureConnectionFailed : JellyfinLibrariesResult
+
+    data object ServerRejected : JellyfinLibrariesResult
+
+    data object InvalidResponse : JellyfinLibrariesResult
+
+    data object UnexpectedFailure : JellyfinLibrariesResult
 }
 
 sealed interface JellyfinAuthenticationResult {
