@@ -26,11 +26,13 @@ import androidx.tv.material3.Button
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import io.github.justarandombaddev.seerrfintv.R
+import io.github.justarandombaddev.seerrfintv.domain.model.PlaybackMethod
 
 @Composable
 fun JellyfinLibrariesScreen(
     state: JellyfinLibrariesUiState,
     onRetry: () -> Unit,
+    onLibraryActivated: (String) -> Unit,
 ) {
     val initialFocusRequester = remember { FocusRequester() }
 
@@ -104,6 +106,14 @@ fun JellyfinLibrariesScreen(
                     contentPadding = PaddingValues(vertical = 8.dp),
                     verticalArrangement = Arrangement.spacedBy(16.dp),
                 ) {
+                    item(key = "playback-resolution") {
+                        Text(
+                            text = playbackResolutionText(state),
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                            color = playbackResolutionColor(state.playbackStatus),
+                            fontSize = 20.sp,
+                        )
+                    }
                     itemsIndexed(
                         items = state.libraries,
                         key = { _, library -> library.id },
@@ -115,7 +125,9 @@ fun JellyfinLibrariesScreen(
                                 Modifier
                             }
                         Button(
-                            onClick = {},
+                            onClick = {
+                                libraryActivationRequest(state, library.id)?.let(onLibraryActivated)
+                            },
                             modifier = focusModifier.fillMaxWidth(),
                         ) {
                             Text(
@@ -130,6 +142,59 @@ fun JellyfinLibrariesScreen(
         }
     }
 }
+
+internal fun libraryActivationRequest(
+    state: JellyfinLibrariesUiState,
+    libraryId: String,
+): String? =
+    libraryId.takeIf {
+        state.status == LibrariesStatus.Success &&
+            state.playbackStatus != PlaybackResolutionStatus.Loading
+    }
+
+@Composable
+private fun playbackResolutionText(state: JellyfinLibrariesUiState): String =
+    when (state.playbackStatus) {
+        PlaybackResolutionStatus.Idle -> stringResource(R.string.libraries_playback_help)
+        PlaybackResolutionStatus.Loading -> stringResource(R.string.libraries_playback_loading)
+        PlaybackResolutionStatus.Ready -> {
+            val source = state.playbackSource
+            if (source == null) {
+                stringResource(R.string.libraries_playback_error_unexpected)
+            } else {
+                stringResource(
+                    R.string.libraries_playback_ready,
+                    source.item.name,
+                    playbackMethodText(source.method),
+                )
+            }
+        }
+
+        PlaybackResolutionStatus.Empty -> stringResource(R.string.libraries_playback_empty)
+        PlaybackResolutionStatus.Error ->
+            stringResource(
+                R.string.libraries_playback_error,
+                libraryErrorText(state.playbackError),
+            )
+    }
+
+@Composable
+private fun playbackMethodText(method: PlaybackMethod): String =
+    when (method) {
+        PlaybackMethod.DIRECT_PLAY -> stringResource(R.string.libraries_playback_method_direct)
+        PlaybackMethod.DIRECT_STREAM -> stringResource(R.string.libraries_playback_method_stream)
+        PlaybackMethod.TRANSCODE -> stringResource(R.string.libraries_playback_method_transcode)
+    }
+
+private fun playbackResolutionColor(status: PlaybackResolutionStatus): Color =
+    when (status) {
+        PlaybackResolutionStatus.Error -> Color(0xFFFCA5A5)
+        PlaybackResolutionStatus.Ready -> Color(0xFF86EFAC)
+        PlaybackResolutionStatus.Idle,
+        PlaybackResolutionStatus.Loading,
+        PlaybackResolutionStatus.Empty,
+        -> Color(0xFF7DD3FC)
+    }
 
 @Composable
 private fun LibraryMessageWithRetry(

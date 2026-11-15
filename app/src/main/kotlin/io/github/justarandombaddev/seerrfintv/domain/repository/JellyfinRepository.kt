@@ -1,6 +1,7 @@
 package io.github.justarandombaddev.seerrfintv.domain.repository
 
 import io.github.justarandombaddev.seerrfintv.domain.model.JellyfinLibrary
+import io.github.justarandombaddev.seerrfintv.domain.model.JellyfinPlaybackSource
 import io.github.justarandombaddev.seerrfintv.domain.model.JellyfinSession
 
 interface JellyfinRepository {
@@ -16,6 +17,30 @@ interface JellyfinRepository {
         serverUrl: String,
         session: JellyfinSession,
     ): JellyfinLibrariesResult
+
+    suspend fun resolvePlaybackSource(
+        serverUrl: String,
+        session: JellyfinSession,
+        libraryId: String,
+    ): JellyfinPlaybackResolutionResult
+}
+
+sealed interface JellyfinPlaybackResolutionResult {
+    data class Success(val source: JellyfinPlaybackSource) : JellyfinPlaybackResolutionResult
+
+    data object Empty : JellyfinPlaybackResolutionResult
+
+    data object InvalidSession : JellyfinPlaybackResolutionResult
+
+    data object Unreachable : JellyfinPlaybackResolutionResult
+
+    data object SecureConnectionFailed : JellyfinPlaybackResolutionResult
+
+    data object ServerRejected : JellyfinPlaybackResolutionResult
+
+    data object InvalidResponse : JellyfinPlaybackResolutionResult
+
+    data object UnexpectedFailure : JellyfinPlaybackResolutionResult
 }
 
 sealed interface JellyfinLibrariesResult {

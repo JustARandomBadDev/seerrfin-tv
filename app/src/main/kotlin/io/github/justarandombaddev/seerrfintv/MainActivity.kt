@@ -105,7 +105,12 @@ class MainActivity : ComponentActivity() {
                     LibrariesStatus.Empty,
                     LibrariesStatus.Success,
                     LibrariesStatus.Error,
-                    -> JellyfinLibrariesScreen(state = librariesState, onRetry = librariesViewModel::retry)
+                    ->
+                        JellyfinLibrariesScreen(
+                            state = librariesState,
+                            onRetry = librariesViewModel::retry,
+                            onLibraryActivated = librariesViewModel::resolveLibrary,
+                        )
                 }
             }
         }

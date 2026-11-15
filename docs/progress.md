@@ -2,10 +2,11 @@
 
 ## Current status
 
-**P01.3 PASS on `dev`** — the Android TV app restores its encrypted Jellyfin
-session, initializes an authenticated SDK client, and lists the accessible
-libraries in a remote-friendly screen. Missing, unreadable, invalid, and
-revoked sessions return to login without exposing session material.
+**P02.1 PASS on `dev`** — activating an accessible Jellyfin library with the TV
+remote recursively searches paginated video items and obtains the first
+server-authorized usable playback source. The temporary validation UI reports
+the resolved item and direct-play, direct-stream, or transcode method without
+starting Media3 playback or exposing source URLs and session material.
 
 ## Completed tasks
 
@@ -29,6 +30,43 @@ revoked sessions return to login without exposing session material.
 - `P01.3` — encrypted-session restoration, authenticated Jellyfin SDK 1.9.4
   client initialization, user-view library loading, retry/error/empty states,
   and D-pad-focused Android TV rendering.
+- `P02.1` — recursive paginated playable-item lookup, conservative Jellyfin
+  playback capability negotiation, server-authorized source selection, and a
+  temporary D-pad library activation surface.
+
+## P02.1 verification — PASS (2026-11-15)
+
+- Context7 and the resolved Jellyfin SDK 1.9.4 artifacts confirmed
+  `LibraryApi.getItems`, `MediaInfoApi.getPostedPlaybackInfo`, device-profile
+  builders, SDK video URL construction, and server-provided transcoding URLs.
+  The official Jellyfin Android TV client confirmed the playback negotiation
+  pattern and direct play → direct stream → transcode decision order; no
+  GPL-licensed code was copied.
+- Recursive item lookup filters movies, episodes, and videos, uses deterministic
+  bounded pages, terminates safely on empty pages and folders, and continues
+  past candidates that expose no authorized usable source. SDK 401, timeout,
+  TLS, server, malformed-response, cancellation, empty, and success paths map
+  to app-owned results.
+- Playback information is requested with a conservative H.264/AAC MP4 direct
+  profile and H.264/AAC HLS fallback. Selection requires both the matching
+  server capability flag and the URL data needed by that method, prefers
+  direct play then direct stream then transcode, and rejects a missing media
+  source identity. Sensitive playback models redact their string output.
+- The libraries ViewModel keeps the restored session private, exposes immutable
+  resolution state through `StateFlow`, suppresses duplicate activation while
+  loading, preserves the library list for retry, and clears a rejected session
+  before returning to login. No Media3 player or P02.2 behavior was added.
+- The complete `:app:testDebugUnitTest :app:assembleDebug` validation passed 78
+  unit tests with no failures or errors and produced the debug APK with JDK 17.
+- The final APK installed with `-r` on the authorized Android 14
+  `Smart_TV_Pro`, preserving the real encrypted session. D-pad Center on the
+  focused first library resolved a real server-approved transcode source;
+  Down/Up moved focus predictably between libraries, Back returned to the TV
+  launcher, and relaunch restored the library screen. The final installed APK
+  re-resolved the source after the last code change.
+- Process-scoped logs contained no fatal exception or authorization, token,
+  password, API-key, or URL markers. Temporary screenshots and UI dumps that
+  could contain personal library data were removed.
 
 ## P01.3 verification — PASS (2026-11-15)
 
@@ -184,5 +222,5 @@ will be checked against the target deployment.
 
 ## Next task
 
-`P02.1` — resolve a playable Jellyfin item and obtain an appropriate playback
-source. Do not start it without a new explicit request.
+`P02.2` — play, pause, and seek with Media3 and the TV remote. It has not been
+started and requires a new explicit request.

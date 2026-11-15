@@ -3,8 +3,11 @@ package io.github.justarandombaddev.seerrfintv.data.jellyfin
 import io.github.justarandombaddev.seerrfintv.domain.repository.JellyfinAuthenticationResult
 import io.github.justarandombaddev.seerrfintv.domain.repository.JellyfinConnectionResult
 import io.github.justarandombaddev.seerrfintv.domain.repository.JellyfinLibrariesResult
+import io.github.justarandombaddev.seerrfintv.domain.repository.JellyfinPlaybackResolutionResult
 import io.github.justarandombaddev.seerrfintv.domain.model.JellyfinLibrary
 import io.github.justarandombaddev.seerrfintv.domain.model.JellyfinSession
+import io.github.justarandombaddev.seerrfintv.domain.model.PlaybackMethod
+import io.github.justarandombaddev.seerrfintv.playback.PlaybackSourceCandidate
 import java.util.concurrent.CancellationException
 import java.util.UUID
 import kotlinx.coroutines.test.runTest
@@ -264,6 +267,210 @@ class SdkJellyfinRepositoryTest {
             }
         }
 
+    @Test
+    fun `recursive paginated search skips unusable candidates and resolves a later page`() =
+        runTest {
+            val itemRequests = mutableListOf<SdkPlayableItemsRequest>()
+            val playbackRequests = mutableListOf<SdkPlaybackInfoRequest>()
+            val pages =
+                mapOf(
+                    0 to
+                        SdkPlayableItemPage(
+                            items =
+                                listOf(
+                                    playableItem("00000000-0000-0000-0000-000000000100", "Unavailable A"),
+                                    playableItem("00000000-0000-0000-0000-000000000101", "Unavailable B"),
+                                ),
+                            totalRecordCount = 3,
+                        ),
+                    2 to
+                        SdkPlayableItemPage(
+                            items = listOf(playableItem("00000000-0000-0000-0000-000000000102", "Playable")),
+                            totalRecordCount = 3,
+                        ),
+                )
+            val repository =
+                repositoryWithPlayback(
+                    pageSize = 2,
+                    itemProvider = { request ->
+                        itemRequests += request
+                        pages.getValue(request.startIndex)
+                    },
+                    playbackProvider = { request ->
+                        playbackRequests += request
+                        if (request.item.id.endsWith("102")) {
+                            playbackInfo(
+                                candidate =
+                                    playbackCandidate(
+                                        supportsDirectPlay = true,
+                                        directPlayUrl = "https://media.example.test/video.mp4",
+                                    ),
+                            )
+                        } else {
+                            playbackInfo(candidate = playbackCandidate())
+                        }
+                    },
+                )
+
+            val result =
+                repository.resolvePlaybackSource(
+                    serverUrl = "https://media.example.test/",
+                    session = testSession(),
+                    libraryId = "00000000-0000-0000-0000-000000000010",
+                )
+
+            assertEquals(listOf(0, 2), itemRequests.map(SdkPlayableItemsRequest::startIndex))
+            assertEquals(listOf(2, 2), itemRequests.map(SdkPlayableItemsRequest::limit))
+            assertEquals(true, itemRequests.all(SdkPlayableItemsRequest::recursive))
+            assertEquals(3, playbackRequests.size)
+            val success = result as JellyfinPlaybackResolutionResult.Success
+            assertEquals("Playable", success.source.item.name)
+            assertEquals(PlaybackMethod.DIRECT_PLAY, success.source.method)
+        }
+
+    @Test
+    fun `empty page terminates recursive search without another request`() =
+        runTest {
+            var pageCalls = 0
+            var playbackCalls = 0
+            val repository =
+                repositoryWithPlayback(
+                    itemProvider = {
+                        pageCalls += 1
+                        SdkPlayableItemPage(emptyList(), totalRecordCount = 20)
+                    },
+                    playbackProvider = {
+                        playbackCalls += 1
+                        playbackInfo()
+                    },
+                )
+
+            val result = repository.resolvePlaybackSource(TEST_SERVER_URL, testSession(), TEST_LIBRARY_ID)
+
+            assertEquals(JellyfinPlaybackResolutionResult.Empty, result)
+            assertEquals(1, pageCalls)
+            assertEquals(0, playbackCalls)
+        }
+
+    @Test
+    fun `all candidates without an authorized usable method produce empty result`() =
+        runTest {
+            val repository =
+                repositoryWithPlayback(
+                    itemProvider = {
+                        SdkPlayableItemPage(
+                            listOf(playableItem("00000000-0000-0000-0000-000000000100", "Unavailable")),
+                            totalRecordCount = 1,
+                        )
+                    },
+                    playbackProvider = {
+                        playbackInfo(
+                            candidate =
+                                playbackCandidate(
+                                    supportsDirectStream = true,
+                                    transcodingUrl = null,
+                                ),
+                        )
+                    },
+                )
+
+            assertEquals(
+                JellyfinPlaybackResolutionResult.Empty,
+                repository.resolvePlaybackSource(TEST_SERVER_URL, testSession(), TEST_LIBRARY_ID),
+            )
+        }
+
+    @Test
+    fun `malformed library or item identity is rejected as invalid response`() =
+        runTest {
+            var pageCalls = 0
+            val invalidLibraryRepository =
+                repositoryWithPlayback(
+                    itemProvider = {
+                        pageCalls += 1
+                        SdkPlayableItemPage(emptyList(), 0)
+                    },
+                )
+
+            assertEquals(
+                JellyfinPlaybackResolutionResult.InvalidResponse,
+                invalidLibraryRepository.resolvePlaybackSource(TEST_SERVER_URL, testSession(), "not-a-uuid"),
+            )
+            assertEquals(0, pageCalls)
+
+            val invalidItemRepository =
+                repositoryWithPlayback(
+                    itemProvider = {
+                        SdkPlayableItemPage(
+                            listOf(playableItem("not-a-uuid", "Malformed")),
+                            totalRecordCount = 1,
+                        )
+                    },
+                )
+            assertEquals(
+                JellyfinPlaybackResolutionResult.InvalidResponse,
+                invalidItemRepository.resolvePlaybackSource(TEST_SERVER_URL, testSession(), TEST_LIBRARY_ID),
+            )
+        }
+
+    @Test
+    fun `playback lookup failures map to app results`() =
+        runTest {
+            val cases =
+                listOf(
+                    InvalidStatusException(401) to JellyfinPlaybackResolutionResult.InvalidSession,
+                    TimeoutException() to JellyfinPlaybackResolutionResult.Unreachable,
+                    SecureConnectionException() to JellyfinPlaybackResolutionResult.SecureConnectionFailed,
+                    InvalidStatusException(503) to JellyfinPlaybackResolutionResult.ServerRejected,
+                    InvalidContentException() to JellyfinPlaybackResolutionResult.InvalidResponse,
+                    ApiClientException() to JellyfinPlaybackResolutionResult.UnexpectedFailure,
+                )
+
+            cases.forEach { (failure, expected) ->
+                val repository =
+                    repositoryWithPlayback(
+                        itemProvider = { oneItemPage() },
+                        playbackProvider = { throw failure },
+                    )
+
+                assertEquals(
+                    expected,
+                    repository.resolvePlaybackSource(TEST_SERVER_URL, testSession(), TEST_LIBRARY_ID),
+                )
+            }
+        }
+
+    @Test
+    fun `item page unauthorized response maps to invalid session`() =
+        runTest {
+            val repository =
+                repositoryWithPlayback(
+                    itemProvider = { throw InvalidStatusException(401) },
+                )
+
+            assertEquals(
+                JellyfinPlaybackResolutionResult.InvalidSession,
+                repository.resolvePlaybackSource(TEST_SERVER_URL, testSession(), TEST_LIBRARY_ID),
+            )
+        }
+
+    @Test
+    fun `playback resolution cancellation is rethrown`() =
+        runTest {
+            val repository =
+                repositoryWithPlayback(
+                    itemProvider = { oneItemPage() },
+                    playbackProvider = { throw CancellationException() },
+                )
+
+            try {
+                repository.resolvePlaybackSource(TEST_SERVER_URL, testSession(), TEST_LIBRARY_ID)
+                fail("CancellationException expected")
+            } catch (_: CancellationException) {
+                // Expected: structured concurrency cancellation must not become a UI error.
+            }
+        }
+
     private fun repositoryWithAuthenticator(
         authenticator: JellyfinUserAuthenticator,
     ): SdkJellyfinRepository =
@@ -271,6 +478,8 @@ class SdkJellyfinRepositoryTest {
             probe = JellyfinServerProbe { PublicSystemInfo() },
             authenticator = authenticator,
             libraryProvider = JellyfinLibraryProvider { _, _, _ -> emptyList() },
+            playableItemProvider = JellyfinPlayableItemProvider { SdkPlayableItemPage(emptyList(), 0) },
+            playbackInfoProvider = JellyfinPlaybackInfoProvider { playbackInfo() },
         )
 
     private fun repositoryWithProbe(
@@ -280,6 +489,8 @@ class SdkJellyfinRepositoryTest {
             probe = probe,
             authenticator = JellyfinUserAuthenticator { _, _, _ -> error("Not used by connection tests") },
             libraryProvider = JellyfinLibraryProvider { _, _, _ -> emptyList() },
+            playableItemProvider = JellyfinPlayableItemProvider { SdkPlayableItemPage(emptyList(), 0) },
+            playbackInfoProvider = JellyfinPlaybackInfoProvider { playbackInfo() },
         )
 
     private fun repositoryWithLibraries(
@@ -289,6 +500,24 @@ class SdkJellyfinRepositoryTest {
             probe = JellyfinServerProbe { PublicSystemInfo() },
             authenticator = JellyfinUserAuthenticator { _, _, _ -> error("Not used by library tests") },
             libraryProvider = provider,
+            playableItemProvider = JellyfinPlayableItemProvider { SdkPlayableItemPage(emptyList(), 0) },
+            playbackInfoProvider = JellyfinPlaybackInfoProvider { playbackInfo() },
+        )
+
+    private fun repositoryWithPlayback(
+        pageSize: Int = 50,
+        itemProvider: JellyfinPlayableItemProvider =
+            JellyfinPlayableItemProvider { SdkPlayableItemPage(emptyList(), 0) },
+        playbackProvider: JellyfinPlaybackInfoProvider =
+            JellyfinPlaybackInfoProvider { playbackInfo() },
+    ): SdkJellyfinRepository =
+        SdkJellyfinRepository(
+            probe = JellyfinServerProbe { PublicSystemInfo() },
+            authenticator = JellyfinUserAuthenticator { _, _, _ -> error("Not used by playback tests") },
+            libraryProvider = JellyfinLibraryProvider { _, _, _ -> emptyList() },
+            playableItemProvider = itemProvider,
+            playbackInfoProvider = playbackProvider,
+            playbackPageSize = pageSize,
         )
 
     private fun testSession() =
@@ -297,6 +526,48 @@ class SdkJellyfinRepositoryTest {
             userId = "00000000-0000-0000-0000-000000000001",
             serverId = "test-server-id",
         )
+
+    private companion object {
+        const val TEST_SERVER_URL = "https://media.example.test/"
+        const val TEST_LIBRARY_ID = "00000000-0000-0000-0000-000000000010"
+
+        fun playableItem(
+            id: String,
+            name: String,
+        ) = SdkPlayableItem(id = id, name = name, type = "MOVIE")
+
+        fun playbackCandidate(
+            supportsDirectPlay: Boolean = false,
+            supportsDirectStream: Boolean = false,
+            supportsTranscoding: Boolean = false,
+            directPlayUrl: String? = null,
+            transcodingUrl: String? = null,
+        ) =
+            PlaybackSourceCandidate(
+                mediaSourceId = "media-source",
+                container = "mp4",
+                transcodingContainer = "ts",
+                supportsDirectPlay = supportsDirectPlay,
+                supportsDirectStream = supportsDirectStream,
+                supportsTranscoding = supportsTranscoding,
+                directPlayUrl = directPlayUrl,
+                transcodingUrl = transcodingUrl,
+                requiredHttpHeaders = emptyMap(),
+            )
+
+        fun playbackInfo(candidate: PlaybackSourceCandidate? = null) =
+            SdkPlaybackInfo(
+                playSessionId = "play-session",
+                errorCode = null,
+                sources = listOfNotNull(candidate),
+            )
+
+        fun oneItemPage() =
+            SdkPlayableItemPage(
+                listOf(playableItem("00000000-0000-0000-0000-000000000100", "Movie")),
+                totalRecordCount = 1,
+            )
+    }
 }
 
 private data class LibraryCall(

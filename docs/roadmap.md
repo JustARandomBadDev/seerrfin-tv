@@ -22,7 +22,7 @@ Each task has a concrete completion condition. Do not advance to the next milest
 
 ## P02 — Minimal player
 
-- [ ] P02.1 Resolve a playable Jellyfin item and obtain an appropriate playback source.
+- [x] P02.1 Resolve a playable Jellyfin item and obtain an appropriate playback source.
 - [ ] P02.2 Play/pause/seek with Media3 and TV remote.
 - [ ] P02.3 Report playback progress, stop and resume to Jellyfin.
 

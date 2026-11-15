@@ -3,8 +3,10 @@ package io.github.justarandombaddev.seerrfintv.feature.home
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import io.github.justarandombaddev.seerrfintv.domain.model.JellyfinLibrary
+import io.github.justarandombaddev.seerrfintv.domain.model.JellyfinPlaybackSource
 import io.github.justarandombaddev.seerrfintv.domain.model.JellyfinSession
 import io.github.justarandombaddev.seerrfintv.domain.repository.JellyfinLibrariesResult
+import io.github.justarandombaddev.seerrfintv.domain.repository.JellyfinPlaybackResolutionResult
 import io.github.justarandombaddev.seerrfintv.domain.repository.JellyfinRepository
 import io.github.justarandombaddev.seerrfintv.domain.repository.ServerSettingsRepository
 import io.github.justarandombaddev.seerrfintv.domain.session.JellyfinSessionRestoreResult
@@ -41,6 +43,14 @@ enum class LibrariesSessionIssue {
     Unreadable,
 }
 
+enum class PlaybackResolutionStatus {
+    Idle,
+    Loading,
+    Ready,
+    Empty,
+    Error,
+}
+
 data class JellyfinLibrariesUiState(
     val status: LibrariesStatus = LibrariesStatus.Restoring,
     val serverUrl: String? = null,
@@ -48,6 +58,10 @@ data class JellyfinLibrariesUiState(
     val error: LibrariesUiError? = null,
     val sessionIssue: LibrariesSessionIssue? = null,
     val loginRequestId: Int = 0,
+    val playbackStatus: PlaybackResolutionStatus = PlaybackResolutionStatus.Idle,
+    val activeLibraryId: String? = null,
+    val playbackSource: JellyfinPlaybackSource? = null,
+    val playbackError: LibrariesUiError? = null,
 ) {
     val isLoading: Boolean
         get() = status == LibrariesStatus.Restoring || status == LibrariesStatus.Loading
@@ -62,6 +76,7 @@ class JellyfinLibrariesViewModel(
     private val mutableUiState = MutableStateFlow(JellyfinLibrariesUiState())
     val uiState: StateFlow<JellyfinLibrariesUiState> = mutableUiState.asStateFlow()
     private var nextLoginRequestId = 0
+    private var activeSession: JellyfinSession? = null
 
     init {
         restoreAndLoad(serverUrl = null, initialLoad = true)
@@ -89,6 +104,37 @@ class JellyfinLibrariesViewModel(
         restoreAndLoad(state.serverUrl)
     }
 
+    fun resolveLibrary(libraryId: String) {
+        val state = mutableUiState.value
+        val serverUrl = state.serverUrl ?: return
+        val session = activeSession ?: return
+        if (
+            state.status != LibrariesStatus.Success ||
+            state.playbackStatus == PlaybackResolutionStatus.Loading ||
+            state.libraries.none { it.id == libraryId }
+        ) {
+            return
+        }
+        mutableUiState.value =
+            state.copy(
+                playbackStatus = PlaybackResolutionStatus.Loading,
+                activeLibraryId = libraryId,
+                playbackSource = null,
+                playbackError = null,
+            )
+        viewModelScope.launch(ioDispatcher) {
+            val result =
+                try {
+                    jellyfinRepository.resolvePlaybackSource(serverUrl, session, libraryId)
+                } catch (error: CancellationException) {
+                    throw error
+                } catch (_: Exception) {
+                    JellyfinPlaybackResolutionResult.UnexpectedFailure
+                }
+            showPlaybackResolution(result)
+        }
+    }
+
     private fun restoreAndLoad(
         serverUrl: String?,
         initialLoad: Boolean = false,
@@ -102,7 +148,10 @@ class JellyfinLibrariesViewModel(
         viewModelScope.launch(ioDispatcher) {
             val resolvedServerUrl = serverUrl ?: loadSavedServerUrl() ?: return@launch
             when (val restored = restoreSession()) {
-                is JellyfinSessionRestoreResult.Restored -> loadLibraries(resolvedServerUrl, restored.session)
+                is JellyfinSessionRestoreResult.Restored -> {
+                    activeSession = restored.session
+                    loadLibraries(resolvedServerUrl, restored.session)
+                }
                 JellyfinSessionRestoreResult.Missing -> showLogin(resolvedServerUrl, issue = null)
                 JellyfinSessionRestoreResult.Unreadable ->
                     showLogin(resolvedServerUrl, LibrariesSessionIssue.Unreadable)
@@ -167,6 +216,7 @@ class JellyfinLibrariesViewModel(
             }
 
             JellyfinLibrariesResult.InvalidSession -> {
+                activeSession = null
                 clearSessionIgnoringFailure()
                 showLogin(serverUrl, LibrariesSessionIssue.Expired)
             }
@@ -191,10 +241,62 @@ class JellyfinLibrariesViewModel(
         }
     }
 
+    private suspend fun showPlaybackResolution(result: JellyfinPlaybackResolutionResult) {
+        when (result) {
+            is JellyfinPlaybackResolutionResult.Success ->
+                mutableUiState.value =
+                    mutableUiState.value.copy(
+                        playbackStatus = PlaybackResolutionStatus.Ready,
+                        playbackSource = result.source,
+                        playbackError = null,
+                    )
+
+            JellyfinPlaybackResolutionResult.Empty ->
+                mutableUiState.value =
+                    mutableUiState.value.copy(
+                        playbackStatus = PlaybackResolutionStatus.Empty,
+                        playbackSource = null,
+                        playbackError = null,
+                    )
+
+            JellyfinPlaybackResolutionResult.InvalidSession -> {
+                activeSession = null
+                clearSessionIgnoringFailure()
+                val serverUrl = mutableUiState.value.serverUrl ?: return
+                showLogin(serverUrl, LibrariesSessionIssue.Expired)
+            }
+
+            JellyfinPlaybackResolutionResult.Unreachable ->
+                showPlaybackError(LibrariesUiError.Unreachable)
+
+            JellyfinPlaybackResolutionResult.SecureConnectionFailed ->
+                showPlaybackError(LibrariesUiError.SecureConnection)
+
+            JellyfinPlaybackResolutionResult.ServerRejected ->
+                showPlaybackError(LibrariesUiError.ServerRejected)
+
+            JellyfinPlaybackResolutionResult.InvalidResponse ->
+                showPlaybackError(LibrariesUiError.InvalidResponse)
+
+            JellyfinPlaybackResolutionResult.UnexpectedFailure ->
+                showPlaybackError(LibrariesUiError.Unexpected)
+        }
+    }
+
+    private fun showPlaybackError(error: LibrariesUiError) {
+        mutableUiState.value =
+            mutableUiState.value.copy(
+                playbackStatus = PlaybackResolutionStatus.Error,
+                playbackSource = null,
+                playbackError = error,
+            )
+    }
+
     private fun showLogin(
         serverUrl: String,
         issue: LibrariesSessionIssue?,
     ) {
+        activeSession = null
         nextLoginRequestId += 1
         mutableUiState.value =
             JellyfinLibrariesUiState(

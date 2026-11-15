@@ -49,4 +49,13 @@
     <string name="libraries_error_server">Le serveur a refusé la requête. Réessayez.</string>
     <string name="libraries_error_response">La réponse des bibliothèques Jellyfin est invalide.</string>
     <string name="libraries_error_unexpected">Impossible de charger les bibliothèques. Réessayez.</string>
+    <string name="libraries_playback_help">OK analyse une source de lecture dans cette bibliothèque.</string>
+    <string name="libraries_playback_loading">Recherche récursive et négociation de la source…</string>
+    <string name="libraries_playback_ready">Source prête : %1$s · %2$s</string>
+    <string name="libraries_playback_empty">Aucun média avec une source de lecture autorisée. Activez une bibliothèque pour réessayer.</string>
+    <string name="libraries_playback_error">%1$s Activez une bibliothèque pour réessayer.</string>
+    <string name="libraries_playback_error_unexpected">Source de lecture incohérente. Réessayez.</string>
+    <string name="libraries_playback_method_direct">lecture directe</string>
+    <string name="libraries_playback_method_stream">flux direct</string>
+    <string name="libraries_playback_method_transcode">transcodage</string>
 </resources>

@@ -4,6 +4,7 @@ import io.github.justarandombaddev.seerrfintv.domain.model.JellyfinSession
 import io.github.justarandombaddev.seerrfintv.domain.repository.JellyfinAuthenticationResult
 import io.github.justarandombaddev.seerrfintv.domain.repository.JellyfinConnectionResult
 import io.github.justarandombaddev.seerrfintv.domain.repository.JellyfinLibrariesResult
+import io.github.justarandombaddev.seerrfintv.domain.repository.JellyfinPlaybackResolutionResult
 import io.github.justarandombaddev.seerrfintv.domain.repository.JellyfinRepository
 import io.github.justarandombaddev.seerrfintv.domain.session.JellyfinSessionStore
 import io.github.justarandombaddev.seerrfintv.domain.session.JellyfinSessionRestoreResult
@@ -197,6 +198,12 @@ private class FakeLoginJellyfinRepository(
         serverUrl: String,
         session: JellyfinSession,
     ): JellyfinLibrariesResult = JellyfinLibrariesResult.UnexpectedFailure
+
+    override suspend fun resolvePlaybackSource(
+        serverUrl: String,
+        session: JellyfinSession,
+        libraryId: String,
+    ): JellyfinPlaybackResolutionResult = JellyfinPlaybackResolutionResult.UnexpectedFailure
 }
 
 private class FakeJellyfinSessionStore(

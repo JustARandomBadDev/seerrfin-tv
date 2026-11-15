@@ -1,19 +1,25 @@
 package io.github.justarandombaddev.seerrfintv.feature.home
 
 import io.github.justarandombaddev.seerrfintv.domain.model.JellyfinLibrary
+import io.github.justarandombaddev.seerrfintv.domain.model.JellyfinPlayableItem
+import io.github.justarandombaddev.seerrfintv.domain.model.JellyfinPlaybackSource
 import io.github.justarandombaddev.seerrfintv.domain.model.JellyfinSession
+import io.github.justarandombaddev.seerrfintv.domain.model.PlaybackMethod
 import io.github.justarandombaddev.seerrfintv.domain.repository.JellyfinAuthenticationResult
 import io.github.justarandombaddev.seerrfintv.domain.repository.JellyfinConnectionResult
 import io.github.justarandombaddev.seerrfintv.domain.repository.JellyfinLibrariesResult
+import io.github.justarandombaddev.seerrfintv.domain.repository.JellyfinPlaybackResolutionResult
 import io.github.justarandombaddev.seerrfintv.domain.repository.JellyfinRepository
 import io.github.justarandombaddev.seerrfintv.domain.repository.ServerSettingsRepository
 import io.github.justarandombaddev.seerrfintv.domain.session.JellyfinSessionRestoreResult
 import io.github.justarandombaddev.seerrfintv.domain.session.JellyfinSessionStore
 import io.github.justarandombaddev.seerrfintv.test.MainDispatcherRule
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
@@ -187,6 +193,150 @@ class JellyfinLibrariesViewModelTest {
             assertEquals(2, repository.fetchCalls.size)
         }
 
+    @Test
+    fun `library activation exposes resolved playback source without discarding libraries`() =
+        runTest(mainDispatcherRule.dispatcher) {
+            val source = testPlaybackSource()
+            val repository =
+                FakeLibrariesRepository(
+                    result = JellyfinLibrariesResult.Success(listOf(testLibrary())),
+                    playbackResult = JellyfinPlaybackResolutionResult.Success(source),
+                )
+            val viewModel = createViewModel(repository = repository)
+            advanceUntilIdle()
+
+            viewModel.resolveLibrary(testLibrary().id)
+            advanceUntilIdle()
+
+            assertEquals(PlaybackResolutionStatus.Ready, viewModel.uiState.value.playbackStatus)
+            assertEquals(source, viewModel.uiState.value.playbackSource)
+            assertEquals(listOf(testLibrary()), viewModel.uiState.value.libraries)
+            assertEquals(
+                listOf(PlaybackResolveCall(SERVER_URL, testSession(), testLibrary().id)),
+                repository.resolveCalls,
+            )
+        }
+
+    @Test
+    fun `empty and retryable playback outcomes remain on libraries`() =
+        runTest(mainDispatcherRule.dispatcher) {
+            val cases =
+                listOf(
+                    JellyfinPlaybackResolutionResult.Empty to
+                        (PlaybackResolutionStatus.Empty to null),
+                    JellyfinPlaybackResolutionResult.Unreachable to
+                        (PlaybackResolutionStatus.Error to LibrariesUiError.Unreachable),
+                    JellyfinPlaybackResolutionResult.SecureConnectionFailed to
+                        (PlaybackResolutionStatus.Error to LibrariesUiError.SecureConnection),
+                    JellyfinPlaybackResolutionResult.ServerRejected to
+                        (PlaybackResolutionStatus.Error to LibrariesUiError.ServerRejected),
+                    JellyfinPlaybackResolutionResult.InvalidResponse to
+                        (PlaybackResolutionStatus.Error to LibrariesUiError.InvalidResponse),
+                    JellyfinPlaybackResolutionResult.UnexpectedFailure to
+                        (PlaybackResolutionStatus.Error to LibrariesUiError.Unexpected),
+                )
+
+            cases.forEach { (result, expected) ->
+                val repository =
+                    FakeLibrariesRepository(
+                        result = JellyfinLibrariesResult.Success(listOf(testLibrary())),
+                        playbackResult = result,
+                    )
+                val viewModel = createViewModel(repository = repository)
+                advanceUntilIdle()
+
+                viewModel.resolveLibrary(testLibrary().id)
+                advanceUntilIdle()
+
+                assertEquals(expected.first, viewModel.uiState.value.playbackStatus)
+                assertEquals(expected.second, viewModel.uiState.value.playbackError)
+                assertEquals(LibrariesStatus.Success, viewModel.uiState.value.status)
+            }
+        }
+
+    @Test
+    fun `revoked session during playback resolution is cleared and requests login`() =
+        runTest(mainDispatcherRule.dispatcher) {
+            val store = FakeSessionStore(restored(testSession()))
+            val repository =
+                FakeLibrariesRepository(
+                    result = JellyfinLibrariesResult.Success(listOf(testLibrary())),
+                    playbackResult = JellyfinPlaybackResolutionResult.InvalidSession,
+                )
+            val viewModel = createViewModel(repository = repository, store = store)
+            advanceUntilIdle()
+
+            viewModel.resolveLibrary(testLibrary().id)
+            advanceUntilIdle()
+
+            assertEquals(1, store.clearCalls)
+            assertEquals(LibrariesStatus.NeedsLogin, viewModel.uiState.value.status)
+            assertEquals(LibrariesSessionIssue.Expired, viewModel.uiState.value.sessionIssue)
+        }
+
+    @Test
+    fun `duplicate activation is suppressed while playback resolution is loading`() =
+        runTest(mainDispatcherRule.dispatcher) {
+            val gate = CompletableDeferred<Unit>()
+            val repository =
+                FakeLibrariesRepository(
+                    result = JellyfinLibrariesResult.Success(listOf(testLibrary())),
+                    playbackResult = JellyfinPlaybackResolutionResult.Empty,
+                    beforePlaybackResult = { gate.await() },
+                )
+            val viewModel = createViewModel(repository = repository)
+            advanceUntilIdle()
+
+            viewModel.resolveLibrary(testLibrary().id)
+            runCurrent()
+            viewModel.resolveLibrary(testLibrary().id)
+            runCurrent()
+
+            assertEquals(PlaybackResolutionStatus.Loading, viewModel.uiState.value.playbackStatus)
+            assertEquals(1, repository.resolveCalls.size)
+            gate.complete(Unit)
+            advanceUntilIdle()
+        }
+
+    @Test
+    fun `library activation retries after a playback failure`() =
+        runTest(mainDispatcherRule.dispatcher) {
+            val repository =
+                FakeLibrariesRepository(
+                    result = JellyfinLibrariesResult.Success(listOf(testLibrary())),
+                    playbackResult = JellyfinPlaybackResolutionResult.Unreachable,
+                )
+            val viewModel = createViewModel(repository = repository)
+            advanceUntilIdle()
+            viewModel.resolveLibrary(testLibrary().id)
+            advanceUntilIdle()
+            repository.playbackResult = JellyfinPlaybackResolutionResult.Success(testPlaybackSource())
+
+            viewModel.resolveLibrary(testLibrary().id)
+            advanceUntilIdle()
+
+            assertEquals(PlaybackResolutionStatus.Ready, viewModel.uiState.value.playbackStatus)
+            assertEquals(2, repository.resolveCalls.size)
+        }
+
+    @Test
+    fun `unexpected playback exception becomes retryable UI failure`() =
+        runTest(mainDispatcherRule.dispatcher) {
+            val repository =
+                FakeLibrariesRepository(
+                    result = JellyfinLibrariesResult.Success(listOf(testLibrary())),
+                    playbackFailure = IllegalStateException("fixture failure"),
+                )
+            val viewModel = createViewModel(repository = repository)
+            advanceUntilIdle()
+
+            viewModel.resolveLibrary(testLibrary().id)
+            advanceUntilIdle()
+
+            assertEquals(PlaybackResolutionStatus.Error, viewModel.uiState.value.playbackStatus)
+            assertEquals(LibrariesUiError.Unexpected, viewModel.uiState.value.playbackError)
+        }
+
     private fun createViewModel(
         serverUrl: String? = SERVER_URL,
         repository: FakeLibrariesRepository = FakeLibrariesRepository(),
@@ -217,6 +367,22 @@ class JellyfinLibrariesViewModelTest {
             )
 
         fun restored(session: JellyfinSession) = JellyfinSessionRestoreResult.Restored(session)
+
+        fun testPlaybackSource() =
+            JellyfinPlaybackSource(
+                item =
+                    JellyfinPlayableItem(
+                        id = "00000000-0000-0000-0000-000000000100",
+                        name = "Example Movie",
+                        type = "MOVIE",
+                    ),
+                mediaSourceId = "media-source",
+                playSessionId = "play-session",
+                method = PlaybackMethod.DIRECT_PLAY,
+                container = "mp4",
+                url = "https://media.example.test/video.mp4",
+                requiredHttpHeaders = emptyMap(),
+            )
     }
 }
 
@@ -225,10 +391,21 @@ private data class LibraryFetchCall(
     val session: JellyfinSession,
 )
 
+private data class PlaybackResolveCall(
+    val serverUrl: String,
+    val session: JellyfinSession,
+    val libraryId: String,
+)
+
 private class FakeLibrariesRepository(
     var result: JellyfinLibrariesResult = JellyfinLibrariesResult.UnexpectedFailure,
+    var playbackResult: JellyfinPlaybackResolutionResult =
+        JellyfinPlaybackResolutionResult.UnexpectedFailure,
+    var playbackFailure: Throwable? = null,
+    var beforePlaybackResult: suspend () -> Unit = {},
 ) : JellyfinRepository {
     val fetchCalls = mutableListOf<LibraryFetchCall>()
+    val resolveCalls = mutableListOf<PlaybackResolveCall>()
 
     override suspend fun connect(serverUrl: String): JellyfinConnectionResult =
         JellyfinConnectionResult.UnexpectedFailure
@@ -245,6 +422,17 @@ private class FakeLibrariesRepository(
     ): JellyfinLibrariesResult {
         fetchCalls += LibraryFetchCall(serverUrl, session)
         return result
+    }
+
+    override suspend fun resolvePlaybackSource(
+        serverUrl: String,
+        session: JellyfinSession,
+        libraryId: String,
+    ): JellyfinPlaybackResolutionResult {
+        resolveCalls += PlaybackResolveCall(serverUrl, session, libraryId)
+        beforePlaybackResult()
+        playbackFailure?.let { throw it }
+        return playbackResult
     }
 }
 
