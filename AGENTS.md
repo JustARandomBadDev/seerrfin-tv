@@ -33,6 +33,7 @@ Seerrfin TV: a native Android TV application that combines Jellyfin playback and
 - Prefer precise edits; avoid sweeping refactors, speculative abstractions or new dependencies.
 - Add or update focused tests for behavior changes. Use a basic build check and targeted tests during development; broader checks at milestone boundaries.
 - Test D-pad focus behavior, back navigation and remote control usability for UI changes.
+- Before testing on the physical TV, read and follow `docs/android-tv-testing.md`.
 - Treat connected physical devices as user-owned: do not install, launch, remove apps, navigate, capture screens or alter settings without explicit authorization for that operation.
 - Never claim to have built, tested or connected to a TV unless the command succeeded.
 - Never create commits, push, publish or change GitHub settings unless explicitly requested.

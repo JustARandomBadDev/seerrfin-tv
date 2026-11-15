@@ -2,9 +2,10 @@
 
 ## Current status
 
-**P01.1 complete on `dev`** — the Android TV app accepts, validates, normalizes,
-tests, and stores a Jellyfin server URL through the official SDK. Authentication
-has not started.
+**P01.2 PASS on `dev`** — the Android TV app authenticates Jellyfin users
+through the official SDK, exposes a remote-friendly login flow, and stores the
+minimal session as Android-Keystore-encrypted ciphertext. Session restoration
+and library loading have not started.
 
 ## Completed tasks
 
@@ -22,6 +23,45 @@ has not started.
 - `P01.1` — remote-friendly server address entry, local URL validation,
   unauthenticated Jellyfin connectivity check, network error mapping, and
   DataStore persistence after success.
+- `P01.2` — username/password authentication through Jellyfin Kotlin SDK 1.9.4,
+  TV-focused login UI, app-owned failure mapping, and encrypted local session
+  persistence backed by Android Keystore AES-GCM.
+
+## P01.2 verification — PASS (2026-11-15)
+
+- Context7 and the resolved 1.9.4 artifacts confirmed
+  `authenticationApi.authenticateUserByName`; the adapter maps HTTP 401,
+  timeout, TLS, other HTTP status, malformed content, SDK client failure, and
+  coroutine cancellation without logging request values.
+- The login ViewModel validates only the username so Jellyfin accounts with an
+  empty password remain supported, blocks duplicate submission, clears the
+  password after successful server authentication, and reports secure-storage
+  failure before exposing an authenticated UI state.
+- Session persistence serializes only access token, user id, and server id,
+  encrypts them with AES/GCM/NoPadding and a non-exportable Android Keystore
+  key, and stores only versioned Base64 IV/ciphertext in private preferences.
+  Corrupt or undecryptable records are cleared. Sensitive models redact their
+  string representations.
+- Focused tests cover SDK mapping, encrypted-store round trips and corruption,
+  ViewModel behavior, D-pad routing, and Back state. The full unit-test task
+  passed 42 tests with no failures, and `assembleDebug` passed with JDK 17.
+- The debug APK installed on the authorized Android TV. The saved P01.1 server
+  reached the new login screen; visual checks confirmed initial focus,
+  username → password → action traversal, password masking, local validation,
+  Back navigation, and an actionable HTTP 401 response using fictitious input.
+  Failed authentication created no session preference, the process remained
+  active, and filtered logs contained no fatal exception or submitted value.
+- A dedicated test account authenticated successfully against the real server.
+  The success UI was reached only after the SDK returned a non-empty access
+  token, user id, and server id and the secure session write completed.
+- The private preference file had mode `600` and contained exactly one
+  versioned `v1:IV:ciphertext` record. Its hash remained unchanged across a
+  complete process stop and relaunch, proving durable encrypted persistence.
+  No credential, token, or authorization header appeared in the process-scoped
+  logs, and all sensitive temporary files were removed.
+- After relaunch, the encrypted record remained available but the app returned
+  to server configuration because constructing an authenticated SDK client from
+  that record is deliberately P01.3 scope, not P01.2.
 
 ## P01.1 verification (2026-11-15)
 
@@ -112,5 +152,6 @@ will be checked against the target deployment.
 
 ## Next task
 
-`P01.2` — implement supported user login and secure local session handling.
-P01.1 changes remain uncommitted on `dev` for review, as requested.
+`P01.3` — fetch libraries through the official SDK and restore the encrypted
+Jellyfin session. P01.2 is validated, so P01.3 may start after review of the
+current uncommitted changes.

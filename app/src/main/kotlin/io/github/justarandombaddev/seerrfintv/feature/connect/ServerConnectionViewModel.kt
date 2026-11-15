@@ -84,6 +84,15 @@ class ServerConnectionViewModel(
         }
     }
 
+    fun returnToEditing() {
+        mutableUiState.update { state ->
+            state.copy(
+                status = ServerConnectionStatus.Idle,
+                error = null,
+            )
+        }
+    }
+
     private fun connectTo(serverUrl: String) {
         mutableUiState.update { state ->
             state.copy(

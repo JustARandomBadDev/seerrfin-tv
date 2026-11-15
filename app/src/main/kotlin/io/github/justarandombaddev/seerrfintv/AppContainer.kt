@@ -3,10 +3,12 @@ package io.github.justarandombaddev.seerrfintv
 import android.content.Context
 import io.github.justarandombaddev.seerrfintv.data.jellyfin.SdkJellyfinRepository
 import io.github.justarandombaddev.seerrfintv.data.jellyfin.ServerUrlNormalizer
+import io.github.justarandombaddev.seerrfintv.data.session.EncryptedJellyfinSessionStore
 import io.github.justarandombaddev.seerrfintv.data.settings.DataStoreServerSettingsRepository
 import io.github.justarandombaddev.seerrfintv.data.settings.serverSettingsDataStore
 import io.github.justarandombaddev.seerrfintv.domain.repository.JellyfinRepository
 import io.github.justarandombaddev.seerrfintv.domain.repository.ServerSettingsRepository
+import io.github.justarandombaddev.seerrfintv.domain.session.JellyfinSessionStore
 import org.jellyfin.sdk.createJellyfin
 import org.jellyfin.sdk.model.ClientInfo
 
@@ -24,4 +26,7 @@ class AppContainer(context: Context) {
 
     val serverSettingsRepository: ServerSettingsRepository =
         DataStoreServerSettingsRepository(context.serverSettingsDataStore)
+
+    val jellyfinSessionStore: JellyfinSessionStore =
+        EncryptedJellyfinSessionStore(context.applicationContext)
 }

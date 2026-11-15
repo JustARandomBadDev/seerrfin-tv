@@ -2,6 +2,7 @@ package io.github.justarandombaddev.seerrfintv.feature.connect
 
 import io.github.justarandombaddev.seerrfintv.data.jellyfin.ServerUrlNormalizer
 import io.github.justarandombaddev.seerrfintv.domain.repository.JellyfinConnectionResult
+import io.github.justarandombaddev.seerrfintv.domain.repository.JellyfinAuthenticationResult
 import io.github.justarandombaddev.seerrfintv.domain.repository.JellyfinRepository
 import io.github.justarandombaddev.seerrfintv.domain.repository.ServerSettingsRepository
 import io.github.justarandombaddev.seerrfintv.test.MainDispatcherRule
@@ -72,6 +73,27 @@ class ServerConnectionViewModelTest {
         }
 
     @Test
+    fun `returning from login restores editable server state`() =
+        runTest(mainDispatcherRule.dispatcher) {
+            val jellyfin =
+                FakeJellyfinRepository(
+                    result = JellyfinConnectionResult.Connected("https://media.example.test/"),
+                )
+            val viewModel = createViewModel(jellyfin = jellyfin)
+            runCurrent()
+            viewModel.onServerUrlChanged("https://media.example.test/")
+            viewModel.connect()
+            advanceUntilIdle()
+            assertEquals(ServerConnectionStatus.Connected, viewModel.uiState.value.status)
+
+            viewModel.returnToEditing()
+
+            assertEquals(ServerConnectionStatus.Idle, viewModel.uiState.value.status)
+            assertEquals("https://media.example.test/", viewModel.uiState.value.serverUrl)
+            assertNull(viewModel.uiState.value.error)
+        }
+
+    @Test
     fun `second connect is ignored while request is running`() =
         runTest(mainDispatcherRule.dispatcher) {
             val gate = CompletableDeferred<Unit>()
@@ -136,6 +158,12 @@ private class FakeJellyfinRepository(
         gate?.await()
         return result
     }
+
+    override suspend fun authenticate(
+        serverUrl: String,
+        username: String,
+        password: String,
+    ): JellyfinAuthenticationResult = JellyfinAuthenticationResult.UnexpectedFailure
 }
 
 private class FakeServerSettingsRepository(initialUrl: String? = null) : ServerSettingsRepository {

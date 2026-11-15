@@ -19,4 +19,22 @@
     <string name="server_error_response">La réponse reçue n’est pas reconnue comme Jellyfin.</string>
     <string name="server_error_settings">Serveur joignable, mais l’adresse n’a pas pu être enregistrée.</string>
     <string name="server_error_unexpected">Erreur inattendue. Réessayez.</string>
+    <string name="login_title">Identification Jellyfin</string>
+    <string name="login_subtitle">Connectez votre compte utilisateur</string>
+    <string name="login_username_hint">Nom d’utilisateur</string>
+    <string name="login_password_hint">Mot de passe</string>
+    <string name="login_action">Se connecter</string>
+    <string name="login_loading">Connexion…</string>
+    <string name="login_help">OK ouvre le clavier · Retour le ferme · Bas passe au champ suivant</string>
+    <string name="login_progress">Authentification en cours…</string>
+    <string name="login_success_title">Session sécurisée</string>
+    <string name="login_success_message">Bienvenue, %1$s. Votre session Jellyfin est enregistrée.</string>
+    <string name="login_error_username">Saisissez votre nom d’utilisateur Jellyfin.</string>
+    <string name="login_error_credentials">Identifiant ou mot de passe incorrect.</string>
+    <string name="login_error_unreachable">Serveur inaccessible. Vérifiez le réseau et réessayez.</string>
+    <string name="login_error_tls">Connexion HTTPS refusée. Vérifiez le certificat du serveur.</string>
+    <string name="login_error_server">Le serveur a refusé la connexion. Réessayez.</string>
+    <string name="login_error_response">Réponse d’authentification Jellyfin invalide.</string>
+    <string name="login_error_storage">Connexion réussie, mais la session n’a pas pu être sécurisée.</string>
+    <string name="login_error_unexpected">Erreur inattendue. Réessayez.</string>
 </resources>
