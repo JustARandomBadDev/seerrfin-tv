@@ -4,6 +4,11 @@ kotlin = "2.4.21"
 compose-bom = "2026.09.00"
 tv-material = "1.1.0"
 activity-compose = "1.13.0"
+lifecycle = "2.11.0"
+datastore = "1.3.0"
+jellyfin = "1.9.4"
+coroutines = "1.11.0"
+slf4j = "2.0.20"
 junit = "4.13.2"
 
 [libraries]
@@ -14,6 +19,13 @@ androidx-compose-ui-tooling = { module = "androidx.compose.ui:ui-tooling" }
 androidx-compose-ui-tooling-preview = { module = "androidx.compose.ui:ui-tooling-preview" }
 androidx-activity-compose = { module = "androidx.activity:activity-compose", version.ref = "activity-compose" }
 androidx-tv-material = { module = "androidx.tv:tv-material", version.ref = "tv-material" }
+androidx-lifecycle-runtime-compose = { module = "androidx.lifecycle:lifecycle-runtime-compose", version.ref = "lifecycle" }
+androidx-lifecycle-viewmodel-compose = { module = "androidx.lifecycle:lifecycle-viewmodel-compose", version.ref = "lifecycle" }
+androidx-datastore-preferences = { module = "androidx.datastore:datastore-preferences", version.ref = "datastore" }
+jellyfin-core = { module = "org.jellyfin.sdk:jellyfin-core", version.ref = "jellyfin" }
+kotlinx-coroutines-android = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-android", version.ref = "coroutines" }
+kotlinx-coroutines-test = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-test", version.ref = "coroutines" }
+slf4j-nop = { module = "org.slf4j:slf4j-nop", version.ref = "slf4j" }
 junit = { module = "junit:junit", version.ref = "junit" }
 
 [plugins]

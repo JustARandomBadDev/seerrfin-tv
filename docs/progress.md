@@ -2,9 +2,9 @@
 
 ## Current status
 
-**P00.5 complete** — GitHub Actions run `43636555495` completed successfully at
-commit `ea8bbe445e65fef4ca291ade6cdb1e4ed0e2e4d9`; unit tests, `assembleDebug`,
-and debug APK publication all succeeded.
+**P01.1 complete on `dev`** — the Android TV app accepts, validates, normalizes,
+tests, and stores a Jellyfin server URL through the official SDK. Authentication
+has not started.
 
 ## Completed tasks
 
@@ -19,6 +19,39 @@ and debug APK publication all succeeded.
   TV, plus visual D-pad, activation, and Back validation.
 - `P00.5` — active Android CI with a successful unit-test and debug-build run,
   plus publication of the debug APK artifact.
+- `P01.1` — remote-friendly server address entry, local URL validation,
+  unauthenticated Jellyfin connectivity check, network error mapping, and
+  DataStore persistence after success.
+
+## P01.1 verification (2026-11-15)
+
+- `jellyfin-core:1.9.4` calls the public system-information endpoint with
+  bounded timeouts; SDK timeout, TLS, HTTP status, invalid response, and client
+  failures map to app-owned UI errors.
+- URL tests cover missing schemes, HTTP/HTTPS, valid and invalid port bounds,
+  encoded reverse-proxy paths without double encoding, credentials, queries,
+  fragments, malformed hosts, trailing slashes, and normalization idempotence.
+- Repository tests require a recognizable Jellyfin product and version; an
+  otherwise valid empty JSON response is rejected instead of being persisted.
+- ViewModel tests cover a saved URL, local validation, loading, successful
+  persistence, duplicate submission, and every repository error result.
+- A runtime regression test verifies that the SLF4J facade required by the SDK
+  is packaged. `slf4j-nop:2.0.20` prevents both the observed connection-time crash
+  and logging of private server addresses.
+- The full unit-test task and `assembleDebug` passed with JDK 17. The generated
+  manifest contains Internet access, the application container, cleartext HTTP
+  support for LAN deployments, and the existing Leanback launcher activity.
+- The APK installed on the authorized physical TV. Captures verified initial
+  input focus, visible focus movement Down to the connect action, Up to the
+  input, keyboard entry and completion, activation, actionable network error
+  rendering, and Back returning to the TV home screen.
+- With explicit authorization, the app reached the target Jellyfin public
+  system-information endpoint, displayed success, persisted the normalized
+  address, and restored it after Back and relaunch. No credentials were used or
+  stored, and the address is intentionally omitted from repository files.
+- The final unit-test task passed 22 tests with no failures; `assembleDebug`
+  passed, the process remained active on-device, and filtered application logs
+  contained no fatal exception.
 
 ## P00.5 verification (2026-11-14)
 
@@ -79,5 +112,5 @@ will be checked against the target deployment.
 
 ## Next task
 
-P00 is complete. P01 has not started; its local build, CI, and physical-TV
-prerequisites are satisfied.
+`P01.2` — implement supported user login and secure local session handling.
+P01.1 changes remain uncommitted on `dev` for review, as requested.

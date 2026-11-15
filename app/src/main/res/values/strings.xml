@@ -1,3 +1,22 @@
 <resources>
     <string name="app_name">Seerrfin TV</string>
+    <string name="server_title">Connexion Jellyfin</string>
+    <string name="server_subtitle">Configurez l’adresse de votre serveur</string>
+    <string name="server_url_hint">https://jellyfin.example.com</string>
+    <string name="server_connect">Tester la connexion</string>
+    <string name="server_connecting">Connexion…</string>
+    <string name="server_help">OK ouvre le clavier · Bas sélectionne le bouton</string>
+    <string name="server_loading">Vérification du serveur…</string>
+    <string name="server_connected">Serveur validé et enregistré.</string>
+    <string name="server_error_empty">Saisissez une adresse de serveur.</string>
+    <string name="server_error_invalid">Adresse invalide. Vérifiez le nom d’hôte et le port.</string>
+    <string name="server_error_scheme">Utilisez une adresse HTTP ou HTTPS.</string>
+    <string name="server_error_credentials">N’incluez pas d’identifiant dans l’adresse.</string>
+    <string name="server_error_query">Retirez les paramètres et fragments de l’adresse.</string>
+    <string name="server_error_unreachable">Serveur inaccessible. Vérifiez l’adresse et le réseau.</string>
+    <string name="server_error_tls">Connexion HTTPS refusée. Vérifiez le certificat du serveur.</string>
+    <string name="server_error_http">Le serveur a refusé la requête. Vérifiez l’adresse Jellyfin.</string>
+    <string name="server_error_response">La réponse reçue n’est pas reconnue comme Jellyfin.</string>
+    <string name="server_error_settings">Serveur joignable, mais l’adresse n’a pas pu être enregistrée.</string>
+    <string name="server_error_unexpected">Erreur inattendue. Réessayez.</string>
 </resources>
