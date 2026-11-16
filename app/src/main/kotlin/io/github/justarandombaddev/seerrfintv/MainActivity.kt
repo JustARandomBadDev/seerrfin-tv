@@ -10,10 +10,12 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import io.github.justarandombaddev.seerrfintv.feature.connect.ServerConnectionScreen
 import io.github.justarandombaddev.seerrfintv.feature.connect.ServerConnectionStatus
 import io.github.justarandombaddev.seerrfintv.feature.connect.ServerConnectionViewModel
+import io.github.justarandombaddev.seerrfintv.feature.details.JellyfinMediaDetailsScreen
 import io.github.justarandombaddev.seerrfintv.feature.home.JellyfinLibrariesScreen
 import io.github.justarandombaddev.seerrfintv.feature.home.JellyfinLibrariesViewModel
 import io.github.justarandombaddev.seerrfintv.feature.home.LibrariesSessionIssue
 import io.github.justarandombaddev.seerrfintv.feature.home.LibrariesStatus
+import io.github.justarandombaddev.seerrfintv.feature.home.MediaDetailsStatus
 import io.github.justarandombaddev.seerrfintv.feature.login.JellyfinLoginNotice
 import io.github.justarandombaddev.seerrfintv.feature.login.JellyfinLoginScreen
 import io.github.justarandombaddev.seerrfintv.feature.login.JellyfinLoginStatus
@@ -59,6 +61,17 @@ class MainActivity : ComponentActivity() {
                         createEngine = container::createPlaybackEngine,
                         reportPlayback = librariesViewModel::reportPlayback,
                         onBack = librariesViewModel::closePlayer,
+                    )
+                } else if (
+                    librariesState.status == LibrariesStatus.Success &&
+                    librariesState.details.status != MediaDetailsStatus.Closed
+                ) {
+                    JellyfinMediaDetailsScreen(
+                        state = librariesState.details,
+                        playbackStatus = librariesState.playbackStatus,
+                        onSeasonSelected = librariesViewModel::selectSeason,
+                        onPlay = librariesViewModel::resolveItem,
+                        onBack = librariesViewModel::closeDetails,
                     )
                 } else {
                     when (librariesState.status) {
@@ -120,7 +133,7 @@ class MainActivity : ComponentActivity() {
                                 state = librariesState,
                                 onRetry = librariesViewModel::retry,
                                 onLibrarySelected = librariesViewModel::selectLibrary,
-                                onItemActivated = librariesViewModel::resolveItem,
+                                onItemActivated = librariesViewModel::openDetails,
                             )
                     }
                 }

@@ -9,11 +9,14 @@ import io.github.justarandombaddev.seerrfintv.domain.model.JellyfinPlaybackRepor
 import io.github.justarandombaddev.seerrfintv.domain.model.JellyfinPlaybackReportKind
 import io.github.justarandombaddev.seerrfintv.domain.model.JellyfinPlaybackSource
 import io.github.justarandombaddev.seerrfintv.domain.model.JellyfinSession
+import io.github.justarandombaddev.seerrfintv.domain.model.JellyfinSeason
 import io.github.justarandombaddev.seerrfintv.domain.model.PlaybackMethod
 import io.github.justarandombaddev.seerrfintv.domain.repository.JellyfinAuthenticationResult
 import io.github.justarandombaddev.seerrfintv.domain.repository.JellyfinConnectionResult
 import io.github.justarandombaddev.seerrfintv.domain.repository.JellyfinLibrariesResult
 import io.github.justarandombaddev.seerrfintv.domain.repository.JellyfinHomeResult
+import io.github.justarandombaddev.seerrfintv.domain.repository.JellyfinEpisodesResult
+import io.github.justarandombaddev.seerrfintv.domain.repository.JellyfinSeriesDetailsResult
 import io.github.justarandombaddev.seerrfintv.domain.repository.JellyfinPlaybackResolutionResult
 import io.github.justarandombaddev.seerrfintv.domain.repository.JellyfinPlaybackReportResult
 import io.github.justarandombaddev.seerrfintv.domain.repository.JellyfinRepository
@@ -38,6 +41,140 @@ import org.junit.Test
 class JellyfinLibrariesViewModelTest {
     @get:Rule
     val mainDispatcherRule = MainDispatcherRule()
+
+    @Test
+    fun `opening a movie shows its detail without resolving playback`() =
+        runTest(mainDispatcherRule.dispatcher) {
+            val repository =
+                FakeLibrariesRepository(
+                    result = JellyfinLibrariesResult.Success(listOf(testLibrary())),
+                )
+            val viewModel = createViewModel(repository = repository)
+            advanceUntilIdle()
+            val movie = testCatalogItem()
+
+            viewModel.openDetails(movie)
+
+            assertEquals(MediaDetailsStatus.Ready, viewModel.uiState.value.details.status)
+            assertEquals(movie, viewModel.uiState.value.details.item)
+            assertEquals(emptyList<PlaybackItemResolveCall>(), repository.resolveItemCalls)
+        }
+
+    @Test
+    fun `series detail loads seasons switches season and back preserves home filter`() =
+        runTest(mainDispatcherRule.dispatcher) {
+            val shows = JellyfinLibrary("00000000-0000-0000-0000-000000000011", "Séries", "TVSHOWS")
+            val series =
+                JellyfinCatalogItem(
+                    id = "00000000-0000-0000-0000-000000000200",
+                    name = "Example Series",
+                    type = JellyfinCatalogItemType.Series,
+                )
+            val season1 = JellyfinSeason("00000000-0000-0000-0000-000000000201", "Season 1", 1)
+            val season2 = JellyfinSeason("00000000-0000-0000-0000-000000000202", "Season 2", 2)
+            val episode2 = testEpisode(id = "00000000-0000-0000-0000-000000000302", season = 2)
+            val repository =
+                FakeLibrariesRepository(
+                    result = JellyfinLibrariesResult.Success(listOf(shows)),
+                    homeResult = JellyfinHomeResult.Success(listOf(JellyfinHomeRow(shows, listOf(series)))),
+                    seriesResult =
+                        JellyfinSeriesDetailsResult.Success(
+                            seasons = listOf(season1, season2),
+                            selectedSeasonId = season1.id,
+                            episodes = listOf(testEpisode()),
+                        ),
+                    episodesResult = JellyfinEpisodesResult.Success(listOf(episode2)),
+                )
+            val viewModel = createViewModel(repository = repository)
+            advanceUntilIdle()
+            viewModel.selectLibrary(shows.id)
+
+            viewModel.openDetails(series)
+            advanceUntilIdle()
+            viewModel.selectSeason(season2.id)
+            advanceUntilIdle()
+
+            assertEquals(MediaDetailsStatus.Ready, viewModel.uiState.value.details.status)
+            assertEquals(season2.id, viewModel.uiState.value.details.selectedSeasonId)
+            assertEquals(listOf(episode2), viewModel.uiState.value.details.episodes)
+            assertEquals(1, repository.seriesCalls.size)
+            assertEquals(listOf(SeasonEpisodesCall(SERVER_URL, testSession(), series.id, season2.id)), repository.episodeCalls)
+
+            viewModel.closeDetails()
+
+            assertEquals(MediaDetailsStatus.Closed, viewModel.uiState.value.details.status)
+            assertEquals(shows.id, viewModel.uiState.value.selectedLibraryId)
+            assertEquals(listOf(series), viewModel.uiState.value.visibleHomeRows.single().items)
+        }
+
+    @Test
+    fun `back during series loading ignores the late response`() =
+        runTest(mainDispatcherRule.dispatcher) {
+            val gate = CompletableDeferred<Unit>()
+            val series =
+                JellyfinCatalogItem(
+                    id = "00000000-0000-0000-0000-000000000200",
+                    name = "Example Series",
+                    type = JellyfinCatalogItemType.Series,
+                )
+            val repository =
+                FakeLibrariesRepository(
+                    result = JellyfinLibrariesResult.Success(listOf(testLibrary())),
+                    homeResult = JellyfinHomeResult.Success(listOf(JellyfinHomeRow(testLibrary(), listOf(series)))),
+                    seriesResult =
+                        JellyfinSeriesDetailsResult.Success(
+                            seasons = listOf(JellyfinSeason("00000000-0000-0000-0000-000000000201", "Season 1", 1)),
+                            selectedSeasonId = "00000000-0000-0000-0000-000000000201",
+                            episodes = listOf(testEpisode()),
+                        ),
+                    beforeSeriesResult = { gate.await() },
+                )
+            val viewModel = createViewModel(repository = repository)
+            advanceUntilIdle()
+
+            viewModel.openDetails(series)
+            runCurrent()
+            viewModel.closeDetails()
+            gate.complete(Unit)
+            advanceUntilIdle()
+
+            assertEquals(MediaDetailsStatus.Closed, viewModel.uiState.value.details.status)
+            assertNull(viewModel.uiState.value.details.item)
+        }
+
+    @Test
+    fun `episode activation reuses exact item playback pipeline`() =
+        runTest(mainDispatcherRule.dispatcher) {
+            val series =
+                JellyfinCatalogItem(
+                    id = "00000000-0000-0000-0000-000000000200",
+                    name = "Example Series",
+                    type = JellyfinCatalogItemType.Series,
+                )
+            val episode = testEpisode()
+            val repository =
+                FakeLibrariesRepository(
+                    result = JellyfinLibrariesResult.Success(listOf(testLibrary())),
+                    homeResult = JellyfinHomeResult.Success(listOf(JellyfinHomeRow(testLibrary(), listOf(series)))),
+                    seriesResult =
+                        JellyfinSeriesDetailsResult.Success(
+                            seasons = listOf(JellyfinSeason("00000000-0000-0000-0000-000000000201", "Season 1", 1)),
+                            selectedSeasonId = "00000000-0000-0000-0000-000000000201",
+                            episodes = listOf(episode),
+                        ),
+                    playbackResult = JellyfinPlaybackResolutionResult.Success(testPlaybackSource()),
+                )
+            val viewModel = createViewModel(repository = repository)
+            advanceUntilIdle()
+            viewModel.openDetails(series)
+            advanceUntilIdle()
+
+            viewModel.resolveItem(episode)
+            advanceUntilIdle()
+
+            assertEquals(listOf(PlaybackItemResolveCall(SERVER_URL, testSession(), episode)), repository.resolveItemCalls)
+            assertEquals(PlaybackResolutionStatus.Ready, viewModel.uiState.value.playbackStatus)
+        }
 
     @Test
     fun `home loads supported library rows and filters them locally`() =
@@ -558,6 +695,18 @@ class JellyfinLibrariesViewModelTest {
                 productionYear = 2026,
             )
 
+        fun testEpisode(
+            id: String = "00000000-0000-0000-0000-000000000301",
+            season: Int = 1,
+        ) = JellyfinCatalogItem(
+            id = id,
+            name = "Pilot",
+            type = JellyfinCatalogItemType.Episode,
+            playbackPositionTicks = 45_000_000,
+            indexNumber = 1,
+            parentIndexNumber = season,
+        )
+
         fun restored(session: JellyfinSession) = JellyfinSessionRestoreResult.Restored(session)
 
         fun testPlaybackSource() =
@@ -619,12 +768,28 @@ private data class PlaybackReportCall(
     val report: JellyfinPlaybackReport,
 )
 
+private data class SeriesDetailsCall(
+    val serverUrl: String,
+    val session: JellyfinSession,
+    val series: JellyfinCatalogItem,
+)
+
+private data class SeasonEpisodesCall(
+    val serverUrl: String,
+    val session: JellyfinSession,
+    val seriesId: String,
+    val seasonId: String,
+)
+
 private class FakeLibrariesRepository(
     var result: JellyfinLibrariesResult = JellyfinLibrariesResult.UnexpectedFailure,
     var homeResult: JellyfinHomeResult? = null,
     var playbackResult: JellyfinPlaybackResolutionResult =
         JellyfinPlaybackResolutionResult.UnexpectedFailure,
     var playbackFailure: Throwable? = null,
+    var seriesResult: JellyfinSeriesDetailsResult = JellyfinSeriesDetailsResult.UnexpectedFailure,
+    var episodesResult: JellyfinEpisodesResult = JellyfinEpisodesResult.UnexpectedFailure,
+    var beforeSeriesResult: suspend () -> Unit = {},
     var beforePlaybackResult: suspend () -> Unit = {},
 ) : JellyfinRepository {
     val fetchCalls = mutableListOf<LibraryFetchCall>()
@@ -632,6 +797,8 @@ private class FakeLibrariesRepository(
     val resolveCalls = mutableListOf<PlaybackResolveCall>()
     val resolveItemCalls = mutableListOf<PlaybackItemResolveCall>()
     val reportCalls = mutableListOf<PlaybackReportCall>()
+    val seriesCalls = mutableListOf<SeriesDetailsCall>()
+    val episodeCalls = mutableListOf<SeasonEpisodesCall>()
 
     override suspend fun connect(serverUrl: String): JellyfinConnectionResult =
         JellyfinConnectionResult.UnexpectedFailure
@@ -683,6 +850,26 @@ private class FakeLibrariesRepository(
         beforePlaybackResult()
         playbackFailure?.let { throw it }
         return playbackResult
+    }
+
+    override suspend fun fetchSeriesDetails(
+        serverUrl: String,
+        session: JellyfinSession,
+        series: JellyfinCatalogItem,
+    ): JellyfinSeriesDetailsResult {
+        seriesCalls += SeriesDetailsCall(serverUrl, session, series)
+        beforeSeriesResult()
+        return seriesResult
+    }
+
+    override suspend fun fetchSeasonEpisodes(
+        serverUrl: String,
+        session: JellyfinSession,
+        seriesId: String,
+        seasonId: String,
+    ): JellyfinEpisodesResult {
+        episodeCalls += SeasonEpisodesCall(serverUrl, session, seriesId, seasonId)
+        return episodesResult
     }
 
     override suspend fun resolvePlaybackItem(

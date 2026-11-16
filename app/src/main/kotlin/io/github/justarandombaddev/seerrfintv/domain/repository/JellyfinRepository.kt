@@ -6,6 +6,7 @@ import io.github.justarandombaddev.seerrfintv.domain.model.JellyfinHomeRow
 import io.github.justarandombaddev.seerrfintv.domain.model.JellyfinPlaybackSource
 import io.github.justarandombaddev.seerrfintv.domain.model.JellyfinPlaybackReport
 import io.github.justarandombaddev.seerrfintv.domain.model.JellyfinSession
+import io.github.justarandombaddev.seerrfintv.domain.model.JellyfinSeason
 
 interface JellyfinRepository {
     suspend fun connect(serverUrl: String): JellyfinConnectionResult
@@ -27,6 +28,19 @@ interface JellyfinRepository {
         libraries: List<JellyfinLibrary>,
     ): JellyfinHomeResult = JellyfinHomeResult.UnexpectedFailure
 
+    suspend fun fetchSeriesDetails(
+        serverUrl: String,
+        session: JellyfinSession,
+        series: JellyfinCatalogItem,
+    ): JellyfinSeriesDetailsResult = JellyfinSeriesDetailsResult.UnexpectedFailure
+
+    suspend fun fetchSeasonEpisodes(
+        serverUrl: String,
+        session: JellyfinSession,
+        seriesId: String,
+        seasonId: String,
+    ): JellyfinEpisodesResult = JellyfinEpisodesResult.UnexpectedFailure
+
     suspend fun resolvePlaybackSource(
         serverUrl: String,
         session: JellyfinSession,
@@ -44,6 +58,32 @@ interface JellyfinRepository {
         session: JellyfinSession,
         report: JellyfinPlaybackReport,
     ): JellyfinPlaybackReportResult = JellyfinPlaybackReportResult.UnexpectedFailure
+}
+
+sealed interface JellyfinSeriesDetailsResult {
+    data class Success(
+        val seasons: List<JellyfinSeason>,
+        val selectedSeasonId: String?,
+        val episodes: List<JellyfinCatalogItem>,
+    ) : JellyfinSeriesDetailsResult
+
+    data object InvalidSession : JellyfinSeriesDetailsResult
+    data object Unreachable : JellyfinSeriesDetailsResult
+    data object SecureConnectionFailed : JellyfinSeriesDetailsResult
+    data object ServerRejected : JellyfinSeriesDetailsResult
+    data object InvalidResponse : JellyfinSeriesDetailsResult
+    data object UnexpectedFailure : JellyfinSeriesDetailsResult
+}
+
+sealed interface JellyfinEpisodesResult {
+    data class Success(val episodes: List<JellyfinCatalogItem>) : JellyfinEpisodesResult
+
+    data object InvalidSession : JellyfinEpisodesResult
+    data object Unreachable : JellyfinEpisodesResult
+    data object SecureConnectionFailed : JellyfinEpisodesResult
+    data object ServerRejected : JellyfinEpisodesResult
+    data object InvalidResponse : JellyfinEpisodesResult
+    data object UnexpectedFailure : JellyfinEpisodesResult
 }
 
 sealed interface JellyfinHomeResult {

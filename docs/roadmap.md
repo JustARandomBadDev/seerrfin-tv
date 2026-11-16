@@ -31,7 +31,7 @@ Each task has a concrete completion condition. Do not advance to the next milest
 ## P03 — Jellyfin catalog
 
 - [x] P03.1 Home rows, library filtering, loading and error states.
-- [ ] P03.2 Media detail, episodes and season navigation.
+- [x] P03.2 Media detail, episodes and season navigation.
 - [ ] P03.3 Remote-friendly search, back handling and focus recovery.
 
 **Exit:** browse to a movie/episode and play using D-pad only.

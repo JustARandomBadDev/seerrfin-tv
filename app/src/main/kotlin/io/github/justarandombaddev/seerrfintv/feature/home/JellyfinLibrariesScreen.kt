@@ -217,7 +217,6 @@ internal fun catalogItemActivationRequest(
     item.takeIf { candidate ->
         state.status == LibrariesStatus.Success &&
             state.playbackStatus != PlaybackResolutionStatus.Loading &&
-            candidate.type != JellyfinCatalogItemType.Series &&
             state.visibleHomeRows.any { row -> row.items.any { it.id == candidate.id } }
     }
 
@@ -226,6 +225,7 @@ private fun catalogItemMetadata(item: JellyfinCatalogItem): String {
         when (item.type) {
             JellyfinCatalogItemType.Movie -> "Film"
             JellyfinCatalogItemType.Series -> "Série"
+            JellyfinCatalogItemType.Episode -> "Épisode"
             JellyfinCatalogItemType.Video -> "Vidéo"
         }
     return item.productionYear?.let { year -> "$type · $year" } ?: type

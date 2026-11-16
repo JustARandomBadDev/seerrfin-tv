@@ -11,11 +11,14 @@ import io.github.justarandombaddev.seerrfintv.domain.model.JellyfinPlayableItem
 import io.github.justarandombaddev.seerrfintv.domain.model.JellyfinPlaybackReport
 import io.github.justarandombaddev.seerrfintv.domain.model.JellyfinPlaybackReportKind
 import io.github.justarandombaddev.seerrfintv.domain.model.JellyfinSession
+import io.github.justarandombaddev.seerrfintv.domain.model.JellyfinSeason
 import io.github.justarandombaddev.seerrfintv.domain.model.PlaybackMethod
 import io.github.justarandombaddev.seerrfintv.domain.repository.JellyfinAuthenticationResult
 import io.github.justarandombaddev.seerrfintv.domain.repository.JellyfinConnectionResult
 import io.github.justarandombaddev.seerrfintv.domain.repository.JellyfinLibrariesResult
 import io.github.justarandombaddev.seerrfintv.domain.repository.JellyfinHomeResult
+import io.github.justarandombaddev.seerrfintv.domain.repository.JellyfinEpisodesResult
+import io.github.justarandombaddev.seerrfintv.domain.repository.JellyfinSeriesDetailsResult
 import io.github.justarandombaddev.seerrfintv.domain.repository.JellyfinPlaybackResolutionResult
 import io.github.justarandombaddev.seerrfintv.domain.repository.JellyfinPlaybackReportResult
 import io.github.justarandombaddev.seerrfintv.domain.repository.JellyfinRepository
@@ -33,6 +36,7 @@ import org.jellyfin.sdk.api.client.extensions.authenticationApi
 import org.jellyfin.sdk.api.client.extensions.libraryApi
 import org.jellyfin.sdk.api.client.extensions.mediaInfoApi
 import org.jellyfin.sdk.api.client.extensions.sessionApi
+import org.jellyfin.sdk.api.client.extensions.showApi
 import org.jellyfin.sdk.api.client.extensions.systemApi
 import org.jellyfin.sdk.api.client.extensions.userViewApi
 import org.jellyfin.sdk.api.client.extensions.videoApi
@@ -147,6 +151,69 @@ fun interface JellyfinHomeItemProvider {
     suspend fun getLatestItems(request: SdkHomeItemsRequest): List<SdkCatalogItem>
 }
 
+data class SdkSeasonItem(
+    val id: String,
+    val name: String,
+    val indexNumber: Int?,
+)
+
+data class SdkEpisodeItem(
+    val id: String,
+    val name: String,
+    val seasonNumber: Int?,
+    val episodeNumber: Int?,
+    val playbackPositionTicks: Long,
+)
+
+data class SdkSeriesRequest(
+    val serverUrl: String,
+    val accessToken: String,
+    val userId: UUID,
+    val seriesId: UUID,
+    val seasonId: UUID?,
+) {
+    override fun toString(): String = "SdkSeriesRequest(<redacted>)"
+
+    companion object {
+        fun seasons(
+            serverUrl: String,
+            session: JellyfinSession,
+            seriesId: String,
+        ) = SdkSeriesRequest(
+            serverUrl = serverUrl,
+            accessToken = session.accessToken,
+            userId = UUID.fromString(session.userId),
+            seriesId = UUID.fromString(seriesId),
+            seasonId = null,
+        )
+
+        fun episodes(
+            serverUrl: String,
+            session: JellyfinSession,
+            seriesId: String,
+            seasonId: String,
+        ) = SdkSeriesRequest(
+            serverUrl = serverUrl,
+            accessToken = session.accessToken,
+            userId = UUID.fromString(session.userId),
+            seriesId = UUID.fromString(seriesId),
+            seasonId = UUID.fromString(seasonId),
+        )
+    }
+}
+
+interface JellyfinSeriesProvider {
+    suspend fun getSeasons(request: SdkSeriesRequest): List<SdkSeasonItem>
+
+    suspend fun getEpisodes(request: SdkSeriesRequest): List<SdkEpisodeItem>
+}
+
+private object EmptyJellyfinSeriesProvider : JellyfinSeriesProvider {
+    override suspend fun getSeasons(request: SdkSeriesRequest): List<SdkSeasonItem> = emptyList()
+
+    override suspend fun getEpisodes(request: SdkSeriesRequest): List<SdkEpisodeItem> = emptyList()
+}
+
 data class SdkPlaybackInfoRequest(
     val serverUrl: String,
     val accessToken: String,
@@ -187,6 +254,7 @@ class SdkJellyfinRepository internal constructor(
     private val playableItemProvider: JellyfinPlayableItemProvider,
     private val playbackInfoProvider: JellyfinPlaybackInfoProvider,
     private val homeItemProvider: JellyfinHomeItemProvider = JellyfinHomeItemProvider { emptyList() },
+    private val seriesProvider: JellyfinSeriesProvider = EmptyJellyfinSeriesProvider,
     private val playbackReportProvider: JellyfinPlaybackReportProvider = JellyfinPlaybackReportProvider {},
     private val playbackPageSize: Int = PLAYBACK_PAGE_SIZE,
 ) : JellyfinRepository {
@@ -197,6 +265,7 @@ class SdkJellyfinRepository internal constructor(
         playableItemProvider = createPlayableItemProvider(jellyfin),
         playbackInfoProvider = createPlaybackInfoProvider(jellyfin),
         homeItemProvider = createHomeItemProvider(jellyfin),
+        seriesProvider = createSeriesProvider(jellyfin),
         playbackReportProvider = createPlaybackReportProvider(jellyfin),
     )
 
@@ -369,6 +438,82 @@ class SdkJellyfinRepository internal constructor(
         }
     }
 
+    override suspend fun fetchSeriesDetails(
+        serverUrl: String,
+        session: JellyfinSession,
+        series: JellyfinCatalogItem,
+    ): JellyfinSeriesDetailsResult {
+        if (!session.isUsable(serverUrl)) return JellyfinSeriesDetailsResult.InvalidSession
+        if (series.id.toUuidOrNull() == null) return JellyfinSeriesDetailsResult.InvalidResponse
+        if (series.type != JellyfinCatalogItemType.Series || series.name.isBlank()) {
+            return JellyfinSeriesDetailsResult.InvalidResponse
+        }
+        return try {
+            val seasonsRequest = SdkSeriesRequest.seasons(serverUrl, session, series.id)
+            val seasons =
+                seriesProvider.getSeasons(seasonsRequest).map { item ->
+                    item.toSeason() ?: return JellyfinSeriesDetailsResult.InvalidResponse
+                }
+            val selectedSeasonId = seasons.firstOrNull()?.id
+            val episodes =
+                selectedSeasonId?.let { seasonId ->
+                    seriesProvider
+                        .getEpisodes(SdkSeriesRequest.episodes(serverUrl, session, series.id, seasonId))
+                        .map { item -> item.toEpisode() ?: return JellyfinSeriesDetailsResult.InvalidResponse }
+                }.orEmpty()
+            JellyfinSeriesDetailsResult.Success(seasons, selectedSeasonId, episodes)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: InvalidStatusException) {
+            if (error.status == HTTP_UNAUTHORIZED) JellyfinSeriesDetailsResult.InvalidSession
+            else JellyfinSeriesDetailsResult.ServerRejected
+        } catch (_: TimeoutException) {
+            JellyfinSeriesDetailsResult.Unreachable
+        } catch (_: SecureConnectionException) {
+            JellyfinSeriesDetailsResult.SecureConnectionFailed
+        } catch (_: InvalidContentException) {
+            JellyfinSeriesDetailsResult.InvalidResponse
+        } catch (_: ApiClientException) {
+            JellyfinSeriesDetailsResult.UnexpectedFailure
+        } catch (_: Exception) {
+            JellyfinSeriesDetailsResult.UnexpectedFailure
+        }
+    }
+
+    override suspend fun fetchSeasonEpisodes(
+        serverUrl: String,
+        session: JellyfinSession,
+        seriesId: String,
+        seasonId: String,
+    ): JellyfinEpisodesResult {
+        if (!session.isUsable(serverUrl)) return JellyfinEpisodesResult.InvalidSession
+        if (seriesId.toUuidOrNull() == null || seasonId.toUuidOrNull() == null) {
+            return JellyfinEpisodesResult.InvalidResponse
+        }
+        return try {
+            val episodes =
+                seriesProvider
+                    .getEpisodes(SdkSeriesRequest.episodes(serverUrl, session, seriesId, seasonId))
+                    .map { item -> item.toEpisode() ?: return JellyfinEpisodesResult.InvalidResponse }
+            JellyfinEpisodesResult.Success(episodes)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: InvalidStatusException) {
+            if (error.status == HTTP_UNAUTHORIZED) JellyfinEpisodesResult.InvalidSession
+            else JellyfinEpisodesResult.ServerRejected
+        } catch (_: TimeoutException) {
+            JellyfinEpisodesResult.Unreachable
+        } catch (_: SecureConnectionException) {
+            JellyfinEpisodesResult.SecureConnectionFailed
+        } catch (_: InvalidContentException) {
+            JellyfinEpisodesResult.InvalidResponse
+        } catch (_: ApiClientException) {
+            JellyfinEpisodesResult.UnexpectedFailure
+        } catch (_: Exception) {
+            JellyfinEpisodesResult.UnexpectedFailure
+        }
+    }
+
     override suspend fun resolvePlaybackSource(
         serverUrl: String,
         session: JellyfinSession,
@@ -433,6 +578,7 @@ class SdkJellyfinRepository internal constructor(
         val sdkType =
             when (item.type) {
                 JellyfinCatalogItemType.Movie -> BaseItemKind.MOVIE.name
+                JellyfinCatalogItemType.Episode -> BaseItemKind.EPISODE.name
                 JellyfinCatalogItemType.Video -> BaseItemKind.VIDEO.name
                 JellyfinCatalogItemType.Series -> return JellyfinPlaybackResolutionResult.Empty
             }
@@ -602,6 +748,29 @@ class SdkJellyfinRepository internal constructor(
             null
         }
 
+    private fun JellyfinSession.isUsable(serverUrl: String): Boolean =
+        serverUrl.isNotBlank() &&
+            accessToken.isNotBlank() &&
+            userId.toUuidOrNull() != null &&
+            serverId.isNotBlank()
+
+    private fun SdkSeasonItem.toSeason(): JellyfinSeason? {
+        if (id.toUuidOrNull() == null || name.isBlank()) return null
+        return JellyfinSeason(id = id, name = name, indexNumber = indexNumber)
+    }
+
+    private fun SdkEpisodeItem.toEpisode(): JellyfinCatalogItem? {
+        if (id.toUuidOrNull() == null || name.isBlank() || playbackPositionTicks < 0) return null
+        return JellyfinCatalogItem(
+            id = id,
+            name = name,
+            type = JellyfinCatalogItemType.Episode,
+            playbackPositionTicks = playbackPositionTicks,
+            indexNumber = episodeNumber,
+            parentIndexNumber = seasonNumber,
+        )
+    }
+
     private fun JellyfinLibrary.catalogItemTypes(): List<BaseItemKind>? =
         when (collectionType) {
             "MOVIES" -> listOf(BaseItemKind.MOVIE)
@@ -642,6 +811,7 @@ class SdkJellyfinRepository internal constructor(
         const val HTTP_UNAUTHORIZED = 401
         const val PLAYBACK_PAGE_SIZE = 50
         const val HOME_ROW_ITEM_LIMIT = 20
+        const val EPISODE_LIMIT = 200
         const val TICKS_PER_MILLISECOND = 10_000L
 
         val HTTP_CLIENT_OPTIONS =
@@ -774,6 +944,56 @@ class SdkJellyfinRepository internal constructor(
                             playbackPositionTicks = item.userData?.playbackPositionTicks ?: 0,
                         )
                     }
+            }
+
+        fun createSeriesProvider(jellyfin: Jellyfin): JellyfinSeriesProvider =
+            object : JellyfinSeriesProvider {
+                override suspend fun getSeasons(request: SdkSeriesRequest): List<SdkSeasonItem> =
+                    jellyfin
+                        .createApi(
+                            baseUrl = request.serverUrl,
+                            accessToken = request.accessToken,
+                            httpClientOptions = HTTP_CLIENT_OPTIONS,
+                        ).showApi
+                        .getSeasons(
+                            seriesId = request.seriesId,
+                            userId = request.userId,
+                            enableImages = false,
+                            enableUserData = true,
+                        ).content.items
+                        .map { item ->
+                            SdkSeasonItem(
+                                id = item.id.toString(),
+                                name = item.name.orEmpty(),
+                                indexNumber = item.indexNumber,
+                            )
+                        }
+
+                override suspend fun getEpisodes(request: SdkSeriesRequest): List<SdkEpisodeItem> =
+                    jellyfin
+                        .createApi(
+                            baseUrl = request.serverUrl,
+                            accessToken = request.accessToken,
+                            httpClientOptions = HTTP_CLIENT_OPTIONS,
+                        ).showApi
+                        .getEpisodes(
+                            seriesId = request.seriesId,
+                            userId = request.userId,
+                            seasonId = requireNotNull(request.seasonId),
+                            startIndex = 0,
+                            limit = EPISODE_LIMIT,
+                            enableImages = false,
+                            enableUserData = true,
+                        ).content.items
+                        .map { item ->
+                            SdkEpisodeItem(
+                                id = item.id.toString(),
+                                name = item.name.orEmpty(),
+                                seasonNumber = item.parentIndexNumber,
+                                episodeNumber = item.indexNumber,
+                                playbackPositionTicks = item.userData?.playbackPositionTicks ?: 0,
+                            )
+                        }
             }
 
         fun createPlaybackInfoProvider(jellyfin: Jellyfin): JellyfinPlaybackInfoProvider =

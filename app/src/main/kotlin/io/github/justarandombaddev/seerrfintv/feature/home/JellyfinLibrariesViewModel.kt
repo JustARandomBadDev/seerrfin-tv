@@ -9,8 +9,11 @@ import io.github.justarandombaddev.seerrfintv.domain.model.JellyfinHomeRow
 import io.github.justarandombaddev.seerrfintv.domain.model.JellyfinPlaybackSource
 import io.github.justarandombaddev.seerrfintv.domain.model.JellyfinPlaybackReport
 import io.github.justarandombaddev.seerrfintv.domain.model.JellyfinSession
+import io.github.justarandombaddev.seerrfintv.domain.model.JellyfinSeason
 import io.github.justarandombaddev.seerrfintv.domain.repository.JellyfinLibrariesResult
 import io.github.justarandombaddev.seerrfintv.domain.repository.JellyfinHomeResult
+import io.github.justarandombaddev.seerrfintv.domain.repository.JellyfinEpisodesResult
+import io.github.justarandombaddev.seerrfintv.domain.repository.JellyfinSeriesDetailsResult
 import io.github.justarandombaddev.seerrfintv.domain.repository.JellyfinPlaybackResolutionResult
 import io.github.justarandombaddev.seerrfintv.domain.repository.JellyfinRepository
 import io.github.justarandombaddev.seerrfintv.domain.repository.ServerSettingsRepository
@@ -62,6 +65,23 @@ enum class PlaybackResolutionStatus {
     Error,
 }
 
+enum class MediaDetailsStatus {
+    Closed,
+    Loading,
+    Ready,
+    Empty,
+    Error,
+}
+
+data class JellyfinMediaDetailsUiState(
+    val status: MediaDetailsStatus = MediaDetailsStatus.Closed,
+    val item: JellyfinCatalogItem? = null,
+    val seasons: List<JellyfinSeason> = emptyList(),
+    val selectedSeasonId: String? = null,
+    val episodes: List<JellyfinCatalogItem> = emptyList(),
+    val error: LibrariesUiError? = null,
+)
+
 data class JellyfinLibrariesUiState(
     val status: LibrariesStatus = LibrariesStatus.Restoring,
     val serverUrl: String? = null,
@@ -76,6 +96,7 @@ data class JellyfinLibrariesUiState(
     val activeItemId: String? = null,
     val playbackSource: JellyfinPlaybackSource? = null,
     val playbackError: LibrariesUiError? = null,
+    val details: JellyfinMediaDetailsUiState = JellyfinMediaDetailsUiState(),
 ) {
     val isLoading: Boolean
         get() = status == LibrariesStatus.Restoring || status == LibrariesStatus.Loading
@@ -128,6 +149,94 @@ class JellyfinLibrariesViewModel(
         mutableUiState.value = state.copy(selectedLibraryId = libraryId)
     }
 
+    fun openDetails(item: JellyfinCatalogItem) {
+        val state = mutableUiState.value
+        val serverUrl = state.serverUrl ?: return
+        val session = activeSession ?: return
+        if (
+            state.status != LibrariesStatus.Success ||
+            state.playbackStatus == PlaybackResolutionStatus.Loading ||
+            state.visibleHomeRows.none { row -> row.items.any { it.id == item.id && it.type == item.type } }
+        ) {
+            return
+        }
+        if (item.type != JellyfinCatalogItemType.Series) {
+            mutableUiState.value =
+                state.copy(
+                    details = JellyfinMediaDetailsUiState(status = MediaDetailsStatus.Ready, item = item),
+                    playbackStatus = PlaybackResolutionStatus.Idle,
+                    playbackError = null,
+                )
+            return
+        }
+        mutableUiState.value =
+            state.copy(
+                details = JellyfinMediaDetailsUiState(status = MediaDetailsStatus.Loading, item = item),
+                playbackStatus = PlaybackResolutionStatus.Idle,
+                playbackError = null,
+            )
+        viewModelScope.launch(ioDispatcher) {
+            val result =
+                try {
+                    jellyfinRepository.fetchSeriesDetails(serverUrl, session, item)
+                } catch (error: CancellationException) {
+                    throw error
+                } catch (_: Exception) {
+                    JellyfinSeriesDetailsResult.UnexpectedFailure
+                }
+            showSeriesDetails(item.id, result)
+        }
+    }
+
+    fun selectSeason(seasonId: String) {
+        val state = mutableUiState.value
+        val details = state.details
+        val series = details.item ?: return
+        val serverUrl = state.serverUrl ?: return
+        val session = activeSession ?: return
+        if (
+            details.status != MediaDetailsStatus.Ready ||
+            series.type != JellyfinCatalogItemType.Series ||
+            details.selectedSeasonId == seasonId ||
+            details.seasons.none { it.id == seasonId }
+        ) {
+            return
+        }
+        mutableUiState.value =
+            state.copy(
+                details =
+                    details.copy(
+                        status = MediaDetailsStatus.Loading,
+                        selectedSeasonId = seasonId,
+                        episodes = emptyList(),
+                        error = null,
+                    ),
+            )
+        viewModelScope.launch(ioDispatcher) {
+            val result =
+                try {
+                    jellyfinRepository.fetchSeasonEpisodes(serverUrl, session, series.id, seasonId)
+                } catch (error: CancellationException) {
+                    throw error
+                } catch (_: Exception) {
+                    JellyfinEpisodesResult.UnexpectedFailure
+                }
+            showSeasonEpisodes(series.id, seasonId, result)
+        }
+    }
+
+    fun closeDetails() {
+        val state = mutableUiState.value
+        if (state.details.status == MediaDetailsStatus.Closed || state.playbackSource != null) return
+        mutableUiState.value =
+            state.copy(
+                details = JellyfinMediaDetailsUiState(),
+                playbackStatus = PlaybackResolutionStatus.Idle,
+                activeItemId = null,
+                playbackError = null,
+            )
+    }
+
     fun resolveLibrary(libraryId: String) {
         val state = mutableUiState.value
         val serverUrl = state.serverUrl ?: return
@@ -167,7 +276,7 @@ class JellyfinLibrariesViewModel(
         if (
             state.status != LibrariesStatus.Success ||
             state.playbackStatus == PlaybackResolutionStatus.Loading ||
-            state.homeRows.none { row -> row.items.any { it.id == item.id } }
+            !isKnownPlayableItem(state, item)
         ) {
             return
         }
@@ -190,6 +299,100 @@ class JellyfinLibrariesViewModel(
                 }
             showPlaybackResolution(result)
         }
+    }
+
+    private fun isKnownPlayableItem(
+        state: JellyfinLibrariesUiState,
+        item: JellyfinCatalogItem,
+    ): Boolean =
+        when (item.type) {
+            JellyfinCatalogItemType.Movie,
+            JellyfinCatalogItemType.Video,
+            -> state.homeRows.any { row -> row.items.any { it.id == item.id && it.type == item.type } }
+
+            JellyfinCatalogItemType.Episode ->
+                state.details.status == MediaDetailsStatus.Ready &&
+                    state.details.episodes.any { it.id == item.id && it.type == JellyfinCatalogItemType.Episode }
+
+            JellyfinCatalogItemType.Series -> false
+        }
+
+    private suspend fun showSeriesDetails(
+        seriesId: String,
+        result: JellyfinSeriesDetailsResult,
+    ) {
+        val activeDetails = mutableUiState.value.details
+        if (activeDetails.status != MediaDetailsStatus.Loading || activeDetails.item?.id != seriesId) return
+        when (result) {
+            is JellyfinSeriesDetailsResult.Success -> {
+                val current = mutableUiState.value
+                mutableUiState.value =
+                    current.copy(
+                        details =
+                            current.details.copy(
+                                status = if (result.seasons.isEmpty()) MediaDetailsStatus.Empty else MediaDetailsStatus.Ready,
+                                seasons = result.seasons,
+                                selectedSeasonId = result.selectedSeasonId,
+                                episodes = result.episodes,
+                                error = null,
+                            ),
+                    )
+            }
+            JellyfinSeriesDetailsResult.InvalidSession -> expireSessionFromDetails()
+            JellyfinSeriesDetailsResult.Unreachable -> showDetailsError(LibrariesUiError.Unreachable)
+            JellyfinSeriesDetailsResult.SecureConnectionFailed -> showDetailsError(LibrariesUiError.SecureConnection)
+            JellyfinSeriesDetailsResult.ServerRejected -> showDetailsError(LibrariesUiError.ServerRejected)
+            JellyfinSeriesDetailsResult.InvalidResponse -> showDetailsError(LibrariesUiError.InvalidResponse)
+            JellyfinSeriesDetailsResult.UnexpectedFailure -> showDetailsError(LibrariesUiError.Unexpected)
+        }
+    }
+
+    private suspend fun showSeasonEpisodes(
+        seriesId: String,
+        seasonId: String,
+        result: JellyfinEpisodesResult,
+    ) {
+        val activeDetails = mutableUiState.value.details
+        if (
+            activeDetails.status != MediaDetailsStatus.Loading ||
+            activeDetails.item?.id != seriesId ||
+            activeDetails.selectedSeasonId != seasonId
+        ) {
+            return
+        }
+        when (result) {
+            is JellyfinEpisodesResult.Success -> {
+                val current = mutableUiState.value
+                mutableUiState.value =
+                    current.copy(
+                        details =
+                            current.details.copy(
+                                status = MediaDetailsStatus.Ready,
+                                episodes = result.episodes,
+                                error = null,
+                            ),
+                    )
+            }
+            JellyfinEpisodesResult.InvalidSession -> expireSessionFromDetails()
+            JellyfinEpisodesResult.Unreachable -> showDetailsError(LibrariesUiError.Unreachable)
+            JellyfinEpisodesResult.SecureConnectionFailed -> showDetailsError(LibrariesUiError.SecureConnection)
+            JellyfinEpisodesResult.ServerRejected -> showDetailsError(LibrariesUiError.ServerRejected)
+            JellyfinEpisodesResult.InvalidResponse -> showDetailsError(LibrariesUiError.InvalidResponse)
+            JellyfinEpisodesResult.UnexpectedFailure -> showDetailsError(LibrariesUiError.Unexpected)
+        }
+    }
+
+    private suspend fun expireSessionFromDetails() {
+        activeSession = null
+        clearSessionIgnoringFailure()
+        val serverUrl = mutableUiState.value.serverUrl ?: return
+        showLogin(serverUrl, LibrariesSessionIssue.Expired)
+    }
+
+    private fun showDetailsError(error: LibrariesUiError) {
+        val current = mutableUiState.value
+        mutableUiState.value =
+            current.copy(details = current.details.copy(status = MediaDetailsStatus.Error, error = error))
     }
 
     fun closePlayer() {

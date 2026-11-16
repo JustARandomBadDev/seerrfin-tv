@@ -6,6 +6,8 @@ import io.github.justarandombaddev.seerrfintv.domain.repository.JellyfinHomeResu
 import io.github.justarandombaddev.seerrfintv.domain.repository.JellyfinLibrariesResult
 import io.github.justarandombaddev.seerrfintv.domain.repository.JellyfinPlaybackResolutionResult
 import io.github.justarandombaddev.seerrfintv.domain.repository.JellyfinPlaybackReportResult
+import io.github.justarandombaddev.seerrfintv.domain.repository.JellyfinEpisodesResult
+import io.github.justarandombaddev.seerrfintv.domain.repository.JellyfinSeriesDetailsResult
 import io.github.justarandombaddev.seerrfintv.domain.model.JellyfinLibrary
 import io.github.justarandombaddev.seerrfintv.domain.model.JellyfinCatalogItem
 import io.github.justarandombaddev.seerrfintv.domain.model.JellyfinCatalogItemType
@@ -13,6 +15,7 @@ import io.github.justarandombaddev.seerrfintv.domain.model.JellyfinHomeRow
 import io.github.justarandombaddev.seerrfintv.domain.model.JellyfinPlaybackReport
 import io.github.justarandombaddev.seerrfintv.domain.model.JellyfinPlaybackReportKind
 import io.github.justarandombaddev.seerrfintv.domain.model.JellyfinSession
+import io.github.justarandombaddev.seerrfintv.domain.model.JellyfinSeason
 import io.github.justarandombaddev.seerrfintv.domain.model.PlaybackMethod
 import io.github.justarandombaddev.seerrfintv.playback.PlaybackSourceCandidate
 import java.util.concurrent.CancellationException
@@ -31,6 +34,119 @@ import org.junit.Assert.fail
 import org.junit.Test
 
 class SdkJellyfinRepositoryTest {
+    @Test
+    fun `series details load seasons and the first season episodes with resume data`() =
+        runTest {
+            val calls = mutableListOf<SdkSeriesRequest>()
+            val repository =
+                repositoryWithSeries(
+                    seasons = { request ->
+                        calls += request
+                        listOf(
+                            SdkSeasonItem(
+                                id = "00000000-0000-0000-0000-000000000201",
+                                name = "Season 1",
+                                indexNumber = 1,
+                            ),
+                            SdkSeasonItem(
+                                id = "00000000-0000-0000-0000-000000000202",
+                                name = "Season 2",
+                                indexNumber = 2,
+                            ),
+                        )
+                    },
+                    episodes = { request ->
+                        calls += request
+                        listOf(
+                            SdkEpisodeItem(
+                                id = "00000000-0000-0000-0000-000000000301",
+                                name = "Pilot",
+                                seasonNumber = 1,
+                                episodeNumber = 1,
+                                playbackPositionTicks = 45_000_000,
+                            ),
+                        )
+                    },
+                )
+            val series =
+                JellyfinCatalogItem(
+                    id = "00000000-0000-0000-0000-000000000200",
+                    name = "Example Series",
+                    type = JellyfinCatalogItemType.Series,
+                )
+
+            val result = repository.fetchSeriesDetails(TEST_SERVER_URL, testSession(), series)
+
+            assertEquals(
+                listOf(
+                    SdkSeriesRequest.seasons(TEST_SERVER_URL, testSession(), series.id),
+                    SdkSeriesRequest.episodes(
+                        TEST_SERVER_URL,
+                        testSession(),
+                        series.id,
+                        "00000000-0000-0000-0000-000000000201",
+                    ),
+                ),
+                calls,
+            )
+            assertEquals(
+                JellyfinSeriesDetailsResult.Success(
+                    seasons =
+                        listOf(
+                            JellyfinSeason("00000000-0000-0000-0000-000000000201", "Season 1", 1),
+                            JellyfinSeason("00000000-0000-0000-0000-000000000202", "Season 2", 2),
+                        ),
+                    selectedSeasonId = "00000000-0000-0000-0000-000000000201",
+                    episodes =
+                        listOf(
+                            JellyfinCatalogItem(
+                                id = "00000000-0000-0000-0000-000000000301",
+                                name = "Pilot",
+                                type = JellyfinCatalogItemType.Episode,
+                                playbackPositionTicks = 45_000_000,
+                                indexNumber = 1,
+                                parentIndexNumber = 1,
+                            ),
+                        ),
+                ),
+                result,
+            )
+        }
+
+    @Test
+    fun `season selection loads only that series season episodes`() =
+        runTest {
+            val requests = mutableListOf<SdkSeriesRequest>()
+            val repository =
+                repositoryWithSeries(
+                    episodes = { request ->
+                        requests += request
+                        emptyList()
+                    },
+                )
+
+            val result =
+                repository.fetchSeasonEpisodes(
+                    TEST_SERVER_URL,
+                    testSession(),
+                    seriesId = "00000000-0000-0000-0000-000000000200",
+                    seasonId = "00000000-0000-0000-0000-000000000202",
+                )
+
+            assertEquals(JellyfinEpisodesResult.Success(emptyList()), result)
+            assertEquals(
+                listOf(
+                    SdkSeriesRequest.episodes(
+                        TEST_SERVER_URL,
+                        testSession(),
+                        "00000000-0000-0000-0000-000000000200",
+                        "00000000-0000-0000-0000-000000000202",
+                    ),
+                ),
+                requests,
+            )
+        }
+
     @Test
     fun `home rows query supported libraries with bounded media types and map items`() =
         runTest {
@@ -131,6 +247,39 @@ class SdkJellyfinRepositoryTest {
                 ),
                 requests.single().item,
             )
+        }
+
+    @Test
+    fun `selected episode resolves that exact episode with its resume position`() =
+        runTest {
+            val requests = mutableListOf<SdkPlaybackInfoRequest>()
+            val repository =
+                repositoryWithPlayback(
+                    playbackProvider = { request ->
+                        requests += request
+                        playbackInfo(
+                            playbackCandidate(
+                                supportsDirectPlay = true,
+                                directPlayUrl = "https://media.example.test/episode.mp4",
+                            ),
+                        )
+                    },
+                )
+            val episode =
+                JellyfinCatalogItem(
+                    id = "00000000-0000-0000-0000-000000000301",
+                    name = "Pilot",
+                    type = JellyfinCatalogItemType.Episode,
+                    playbackPositionTicks = 45_000_000,
+                    indexNumber = 1,
+                    parentIndexNumber = 1,
+                )
+
+            val result = repository.resolvePlaybackItem(TEST_SERVER_URL, testSession(), episode)
+
+            assertEquals(JellyfinPlaybackResolutionResult.Success::class, result::class)
+            assertEquals("EPISODE", requests.single().item.type)
+            assertEquals(45_000_000, requests.single().item.playbackPositionTicks)
         }
 
     @Test
@@ -819,6 +968,24 @@ class SdkJellyfinRepositoryTest {
             playableItemProvider = itemProvider,
             playbackInfoProvider = playbackProvider,
             playbackPageSize = pageSize,
+        )
+
+    private fun repositoryWithSeries(
+        seasons: suspend (SdkSeriesRequest) -> List<SdkSeasonItem> = { emptyList() },
+        episodes: suspend (SdkSeriesRequest) -> List<SdkEpisodeItem> = { emptyList() },
+    ): SdkJellyfinRepository =
+        SdkJellyfinRepository(
+            probe = JellyfinServerProbe { PublicSystemInfo() },
+            authenticator = JellyfinUserAuthenticator { _, _, _ -> error("Not used by series tests") },
+            libraryProvider = JellyfinLibraryProvider { _, _, _ -> emptyList() },
+            playableItemProvider = JellyfinPlayableItemProvider { SdkPlayableItemPage(emptyList(), 0) },
+            playbackInfoProvider = JellyfinPlaybackInfoProvider { playbackInfo() },
+            seriesProvider =
+                object : JellyfinSeriesProvider {
+                    override suspend fun getSeasons(request: SdkSeriesRequest) = seasons(request)
+
+                    override suspend fun getEpisodes(request: SdkSeriesRequest) = episodes(request)
+                },
         )
 
     private fun repositoryWithReporting(

@@ -2,10 +2,10 @@
 
 ## Current status
 
-**P03.1 PASS on `dev`** — the restored Jellyfin session now loads bounded home
-rows for supported video libraries, filters rows by library with TV focus, and
-exposes loading, empty, retryable error and exact-item playback paths while
-preserving the P01/P02 connection, session and player behavior.
+**P03.2 PASS on `dev`** — every visible catalogue item now opens a remote-first
+detail screen; series load typed Jellyfin seasons and episodes, season changes
+stay bounded and user-scoped, and movies or exact episodes enter the existing
+resume-aware P02 playback and reporting pipeline.
 
 ## Completed tasks
 
@@ -41,6 +41,45 @@ preserving the P01/P02 connection, session and player behavior.
 - `P03.1` — bounded recent-media home rows, supported video-library filtering,
   remote-focusable filters and cards, catalogue loading/empty/error states, and
   exact selected-item playback through the existing P02 pipeline.
+- `P03.2` — movie/video details, typed series-season-episode loading,
+  remote-focusable season and episode rows, exact episode playback, and Back
+  navigation that preserves the loaded home and selected season state.
+
+## P03.2 verification — PASS (2026-11-16)
+
+- Context7 confirmed Jellyfin Kotlin SDK 1.9.4 `ShowApi.getSeasons` and
+  `ShowApi.getEpisodes`, including required series identity, optional season
+  identity, user-scoped data and bounded episode results. No endpoint was
+  invented and no GPL client code was copied.
+- App-owned season and episode models retain stable identities, indices and
+  resume ticks. Repository failures map to the existing authentication,
+  network, TLS, server, response and unexpected states; an exact episode is
+  resolved by the unchanged P02 source selector and player/reporting path.
+- The existing home ViewModel `StateFlow` now owns an immutable detail state.
+  Movies and videos open locally; series load their first season and episodes,
+  season selection fetches only that season, stale responses after Back are
+  ignored, and filters/home rows remain loaded. Compose for TV exposes an
+  initial focus, horizontal season and episode rows, and explicit Back handling.
+- Focused RED/GREEN tests cover SDK request/mapping boundaries, first-season
+  loading, season replacement, episode resume playback, detail activation,
+  Back preservation and late-response suppression. A forced final
+  `:app:testDebugUnitTest --rerun-tasks` run passed 124 tests; the final
+  `:app:assembleDebug` build passed with JDK 17.
+- The final APK installed with `-r` on the authorized Android 14
+  `Smart_TV_Pro`, preserving the encrypted session. On the real catalogue,
+  D-pad Down focused a movie, Center opened its focused detail action, a second
+  real movie rendered through Media3, Back returned to its detail, and Back
+  returned to the unchanged home.
+- The real Seerrfin home exposed no series row during this session. A
+  validation-only fictitious series fixture therefore exercised Season 1 →
+  Season 2, episode focus, exact episode activation, real Media3 rendering and
+  Back to the still-selected Season 2 on the physical TV. The fixture was
+  removed, its markers were checked absent, and the clean final APK was rebuilt,
+  reinstalled and visually rechecked.
+- Final process-scoped logs contained no crash or sensitive URL,
+  authorization, bearer, token, password, API-key or local-address markers.
+  The source diff contained no credential marker, `git diff --check` passed,
+  and temporary captures containing personal catalogue data were removed.
 
 ## P03.1 verification — PASS (2026-11-15)
 
@@ -335,5 +374,5 @@ will be checked against the target deployment.
 
 ## Next task
 
-`P03.2` — media detail, episodes and season navigation. It has not been started
-and requires a new explicit request.
+`P03.3` — remote-friendly search, back handling and focus recovery. It has not
+been started and requires a new explicit request.

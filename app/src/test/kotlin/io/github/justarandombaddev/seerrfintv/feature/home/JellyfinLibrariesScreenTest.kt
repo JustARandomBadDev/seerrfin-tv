@@ -28,7 +28,7 @@ class JellyfinLibrariesScreenTest {
     }
 
     @Test
-    fun `stable home activates only a playable visible catalog item`() {
+    fun `stable home opens details for every visible catalog item`() {
         val movie = JellyfinCatalogItem("movie", "Movie", JellyfinCatalogItemType.Movie)
         val series = JellyfinCatalogItem("series", "Series", JellyfinCatalogItemType.Series)
         val library = JellyfinLibrary("movies", "Films", "MOVIES")
@@ -40,7 +40,7 @@ class JellyfinLibrariesScreenTest {
             )
 
         assertEquals(movie, catalogItemActivationRequest(state, movie))
-        assertNull(catalogItemActivationRequest(state, series))
+        assertEquals(series, catalogItemActivationRequest(state, series))
         assertNull(
             catalogItemActivationRequest(
                 state.copy(playbackStatus = PlaybackResolutionStatus.Loading),
