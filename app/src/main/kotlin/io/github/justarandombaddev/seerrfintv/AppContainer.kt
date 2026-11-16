@@ -1,6 +1,7 @@
 package io.github.justarandombaddev.seerrfintv
 
 import android.content.Context
+import android.util.Log
 import io.github.justarandombaddev.seerrfintv.data.jellyfin.SdkJellyfinRepository
 import io.github.justarandombaddev.seerrfintv.data.jellyfin.ServerUrlNormalizer
 import io.github.justarandombaddev.seerrfintv.data.session.EncryptedJellyfinSessionStore
@@ -9,6 +10,7 @@ import io.github.justarandombaddev.seerrfintv.data.settings.serverSettingsDataSt
 import io.github.justarandombaddev.seerrfintv.domain.repository.JellyfinRepository
 import io.github.justarandombaddev.seerrfintv.domain.repository.ServerSettingsRepository
 import io.github.justarandombaddev.seerrfintv.domain.session.JellyfinSessionStore
+import io.github.justarandombaddev.seerrfintv.playback.AndroidPlaybackCapabilitiesDetector
 import io.github.justarandombaddev.seerrfintv.playback.Media3PlaybackEngine
 import org.jellyfin.sdk.createJellyfin
 import org.jellyfin.sdk.model.ClientInfo
@@ -16,6 +18,17 @@ import org.jellyfin.sdk.model.ClientInfo
 class AppContainer(context: Context) {
     private val applicationContext = context.applicationContext
     val serverUrlNormalizer = ServerUrlNormalizer()
+    private val playbackCapabilities =
+        AndroidPlaybackCapabilitiesDetector(applicationContext).detect().also { capabilities ->
+            Log.i(
+                "SeerrfinPlayback",
+                "Detected video=${capabilities.videoCodecs.joinToString { codec ->
+                    "${codec.codec}:${codec.maxWidth}x${codec.maxHeight}:L${codec.maxLevel ?: "n/a"}"
+                }} " +
+                    "audio=${capabilities.audioCodecs.joinToString()} " +
+                    "channels=${capabilities.maxAudioChannels} bitrate=${capabilities.maxStreamingBitrate}",
+            )
+        }
 
     val jellyfinRepository: JellyfinRepository =
         SdkJellyfinRepository(
@@ -24,6 +37,7 @@ class AppContainer(context: Context) {
                     this.context = context.applicationContext
                     clientInfo = ClientInfo(name = "Seerrfin TV", version = "0.1.0")
                 },
+            playbackCapabilities = playbackCapabilities,
         )
 
     val serverSettingsRepository: ServerSettingsRepository =

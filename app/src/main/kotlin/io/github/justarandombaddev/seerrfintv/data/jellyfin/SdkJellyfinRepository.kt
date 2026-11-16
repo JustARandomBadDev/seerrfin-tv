@@ -25,6 +25,7 @@ import io.github.justarandombaddev.seerrfintv.domain.repository.JellyfinPlayback
 import io.github.justarandombaddev.seerrfintv.domain.repository.JellyfinRepository
 import io.github.justarandombaddev.seerrfintv.playback.PlaybackSourceCandidate
 import io.github.justarandombaddev.seerrfintv.playback.PlaybackSourceSelector
+import io.github.justarandombaddev.seerrfintv.playback.DevicePlaybackCapabilities
 import org.jellyfin.sdk.Jellyfin
 import org.jellyfin.sdk.api.client.HttpClientOptions
 import org.jellyfin.sdk.api.client.exception.ApiClientException
@@ -42,6 +43,7 @@ import org.jellyfin.sdk.api.client.extensions.systemApi
 import org.jellyfin.sdk.api.client.extensions.userViewApi
 import org.jellyfin.sdk.api.client.extensions.videoApi
 import org.jellyfin.sdk.model.api.BaseItemKind
+import org.jellyfin.sdk.model.api.CodecType
 import org.jellyfin.sdk.model.api.DlnaProfileType
 import org.jellyfin.sdk.model.api.DeviceProfile
 import org.jellyfin.sdk.model.api.EncodingContext
@@ -54,9 +56,11 @@ import org.jellyfin.sdk.model.api.PlaybackProgressInfo
 import org.jellyfin.sdk.model.api.PlaybackStartInfo
 import org.jellyfin.sdk.model.api.PlaybackStopInfo
 import org.jellyfin.sdk.model.api.PlayMethod
+import org.jellyfin.sdk.model.api.ProfileConditionValue
 import org.jellyfin.sdk.model.api.PublicSystemInfo
 import org.jellyfin.sdk.model.api.RepeatMode
 import org.jellyfin.sdk.model.api.SortOrder
+import org.jellyfin.sdk.model.api.SubtitleDeliveryMethod
 import org.jellyfin.sdk.model.api.request.GetItemsRequest
 import org.jellyfin.sdk.model.deviceprofile.buildDeviceProfile
 
@@ -310,12 +314,15 @@ class SdkJellyfinRepository internal constructor(
     private val playbackReportProvider: JellyfinPlaybackReportProvider = JellyfinPlaybackReportProvider {},
     private val playbackPageSize: Int = PLAYBACK_PAGE_SIZE,
 ) : JellyfinRepository {
-    constructor(jellyfin: Jellyfin) : this(
+    constructor(
+        jellyfin: Jellyfin,
+        playbackCapabilities: DevicePlaybackCapabilities,
+    ) : this(
         probe = createProbe(jellyfin),
         authenticator = createAuthenticator(jellyfin),
         libraryProvider = createLibraryProvider(jellyfin),
         playableItemProvider = createPlayableItemProvider(jellyfin),
-        playbackInfoProvider = createPlaybackInfoProvider(jellyfin),
+        playbackInfoProvider = createPlaybackInfoProvider(jellyfin, buildPlaybackDeviceProfile(playbackCapabilities)),
         homeItemProvider = createHomeItemProvider(jellyfin),
         searchItemProvider = createSearchItemProvider(jellyfin),
         seriesProvider = createSeriesProvider(jellyfin),
@@ -1106,7 +1113,10 @@ class SdkJellyfinRepository internal constructor(
                         }
             }
 
-        fun createPlaybackInfoProvider(jellyfin: Jellyfin): JellyfinPlaybackInfoProvider =
+        fun createPlaybackInfoProvider(
+            jellyfin: Jellyfin,
+            deviceProfile: DeviceProfile,
+        ): JellyfinPlaybackInfoProvider =
             JellyfinPlaybackInfoProvider { request ->
                 val api =
                     jellyfin.createApi(
@@ -1119,7 +1129,7 @@ class SdkJellyfinRepository internal constructor(
                     api.mediaInfoApi
                         .getPostedPlaybackInfo(
                             itemId = itemId,
-                            data = request.toPlaybackInfoDto(PLAYBACK_DEVICE_PROFILE),
+                            data = request.toPlaybackInfoDto(deviceProfile),
                         ).content
                 SdkPlaybackInfo(
                     playSessionId = response.playSessionId,
@@ -1197,26 +1207,118 @@ class SdkJellyfinRepository internal constructor(
                 BaseItemKind.VIDEO,
             )
 
-        val PLAYBACK_DEVICE_PROFILE =
-            buildDeviceProfile {
-                name = "Seerrfin TV"
-                directPlayProfile {
-                    type = DlnaProfileType.VIDEO
-                    container("mp4", "m4v")
-                    videoCodec("h264")
-                    audioCodec("aac")
-                }
-                transcodingProfile {
-                    type = DlnaProfileType.VIDEO
-                    context = EncodingContext.STREAMING
-                    protocol = MediaStreamProtocol.HLS
-                    container = "ts"
-                    videoCodec("h264")
-                    audioCodec("aac")
-                }
-            }
     }
 }
+
+internal fun buildPlaybackDeviceProfile(
+    capabilities: DevicePlaybackCapabilities,
+): DeviceProfile =
+    buildDeviceProfile {
+        name = "Seerrfin TV"
+        maxStreamingBitrate = capabilities.maxStreamingBitrate
+        maxStaticBitrate = capabilities.maxStreamingBitrate
+
+        val videoCodecs = capabilities.videoCodecs.map { it.codec }.toSet()
+        val audioCodecs = capabilities.audioCodecs
+
+        fun addDirectPlayProfile(
+            containers: Array<String>,
+            allowedVideoCodecs: Set<String>,
+            allowedAudioCodecs: Set<String>,
+        ) {
+            val detectedVideoCodecs = videoCodecs.intersect(allowedVideoCodecs)
+            val detectedAudioCodecs = audioCodecs.intersect(allowedAudioCodecs)
+            if (detectedVideoCodecs.isEmpty() || detectedAudioCodecs.isEmpty()) return
+            directPlayProfile {
+                type = DlnaProfileType.VIDEO
+                container(*containers)
+                videoCodec(*detectedVideoCodecs.sorted().toTypedArray())
+                audioCodec(*detectedAudioCodecs.sorted().toTypedArray())
+            }
+        }
+
+        addDirectPlayProfile(
+            containers = arrayOf("mp4", "m4v", "mov"),
+            allowedVideoCodecs = setOf("h264", "hevc", "av1", "vp9", "mpeg4"),
+            allowedAudioCodecs = setOf("aac", "ac3", "eac3", "mp3", "alac", "flac", "opus"),
+        )
+        addDirectPlayProfile(
+            containers = arrayOf("mkv"),
+            allowedVideoCodecs = videoCodecs,
+            allowedAudioCodecs = audioCodecs,
+        )
+        addDirectPlayProfile(
+            containers = arrayOf("webm"),
+            allowedVideoCodecs = setOf("vp8", "vp9", "av1"),
+            allowedAudioCodecs = setOf("opus", "vorbis"),
+        )
+        addDirectPlayProfile(
+            containers = arrayOf("ts"),
+            allowedVideoCodecs = setOf("h264", "hevc", "mpeg2video"),
+            allowedAudioCodecs = setOf("aac", "ac3", "eac3", "mp3"),
+        )
+
+        val hlsVideoCodecs = videoCodecs.intersect(setOf("h264", "hevc")).sorted()
+        fun addHlsProfile(
+            outputContainer: String,
+            allowedAudioCodecs: Set<String>,
+        ) {
+            val hlsAudioCodecs = audioCodecs.intersect(allowedAudioCodecs).sorted()
+            if (hlsVideoCodecs.isEmpty() || hlsAudioCodecs.isEmpty()) return
+            transcodingProfile {
+                type = DlnaProfileType.VIDEO
+                context = EncodingContext.STREAMING
+                protocol = MediaStreamProtocol.HLS
+                container = outputContainer
+                videoCodec(*hlsVideoCodecs.toTypedArray())
+                audioCodec(*hlsAudioCodecs.toTypedArray())
+                maxAudioChannels = capabilities.maxAudioChannels.toString()
+                enableSubtitlesInManifest = true
+                copyTimestamps = false
+            }
+        }
+        addHlsProfile("ts", setOf("aac", "ac3", "eac3", "mp3"))
+        addHlsProfile("mp4", setOf("aac", "ac3", "eac3", "mp3", "alac", "flac", "opus"))
+
+        capabilities.videoCodecs.forEach { capability ->
+            codecProfile {
+                type = CodecType.VIDEO
+                codec = capability.codec
+                conditions {
+                    lowerThanOrEquals(ProfileConditionValue.WIDTH, capability.maxWidth)
+                    lowerThanOrEquals(ProfileConditionValue.HEIGHT, capability.maxHeight)
+                    lowerThanOrEquals(ProfileConditionValue.VIDEO_BITRATE, capability.maxBitrate)
+                    if (capability.profiles.isNotEmpty()) {
+                        ProfileConditionValue.VIDEO_PROFILE inCollection capability.profiles.sorted()
+                    }
+                    capability.maxLevel?.let { maxLevel ->
+                        lowerThanOrEquals(ProfileConditionValue.VIDEO_LEVEL, maxLevel)
+                    }
+                }
+            }
+        }
+
+        codecProfile {
+            type = CodecType.VIDEO_AUDIO
+            conditions {
+                lowerThanOrEquals(ProfileConditionValue.AUDIO_CHANNELS, capabilities.maxAudioChannels)
+            }
+        }
+
+        val knownSubtitleFormats =
+            setOf("srt", "subrip", "vtt", "webvtt", "ttml", "ass", "ssa", "pgs", "pgssub", "dvdsub", "dvbsub")
+        knownSubtitleFormats.forEach { format ->
+            if (format in capabilities.embeddedSubtitleFormats) {
+                subtitleProfile(format, SubtitleDeliveryMethod.EMBED)
+            }
+            if (format in capabilities.hlsSubtitleFormats) {
+                subtitleProfile(format, SubtitleDeliveryMethod.HLS)
+            }
+            if (format !in capabilities.embeddedSubtitleFormats && format !in capabilities.hlsSubtitleFormats) {
+                subtitleProfile(format, SubtitleDeliveryMethod.ENCODE)
+            }
+        }
+    }
 
 internal fun SdkPlaybackInfoRequest.toPlaybackInfoDto(deviceProfile: DeviceProfile): PlaybackInfoDto =
     PlaybackInfoDto(

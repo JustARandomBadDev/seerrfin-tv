@@ -772,9 +772,12 @@ class SdkJellyfinRepositoryTest {
 
         assertEquals(123_450_000L, payload.startTimeTicks)
         assertEquals(request.userId, payload.userId)
+        assertEquals("Test profile", payload.deviceProfile?.name)
         assertEquals(true, payload.enableDirectPlay)
         assertEquals(true, payload.enableDirectStream)
         assertEquals(true, payload.enableTranscoding)
+        assertEquals(true, payload.allowVideoStreamCopy)
+        assertEquals(true, payload.allowAudioStreamCopy)
     }
 
     @Test

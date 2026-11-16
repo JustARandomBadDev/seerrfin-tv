@@ -82,6 +82,28 @@ class PlaybackSourceSelectorTest {
     }
 
     @Test
+    fun `server codec rejection falls back to transcode without treating HLS as direct play`() {
+        val result =
+            PlaybackSourceSelector.select(
+                item = item(),
+                playSessionId = "play-session",
+                sources =
+                    listOf(
+                        candidate(
+                            supportsDirectPlay = false,
+                            supportsDirectStream = false,
+                            supportsTranscoding = true,
+                            directPlayUrl = "https://media.example.test/video.mkv",
+                            transcodingUrl = "https://media.example.test/transcode.m3u8",
+                        ),
+                    ),
+            )
+
+        assertEquals(PlaybackMethod.TRANSCODE, result?.method)
+        assertEquals("ts", result?.container)
+    }
+
+    @Test
     fun `server remote URL is accepted only with direct play capability`() {
         val remoteUrl = "https://remote.example.test/video.mp4"
 

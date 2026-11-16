@@ -33,6 +33,7 @@ Each task has a concrete completion condition. Do not advance to the next milest
 - [x] P03.1 Home rows, library filtering, loading and error states.
 - [x] P03.2 Media detail, episodes and season navigation.
 - [x] P03.3 Remote-friendly search, back handling and focus recovery.
+- [x] P03.4 Correct Jellyfin DeviceProfile negotiation and validate Direct Play on the authorized TV.
 
 **Exit:** browse to a movie/episode and play using D-pad only.
 

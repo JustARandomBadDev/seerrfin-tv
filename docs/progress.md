@@ -2,10 +2,9 @@
 
 ## Current status
 
-**P03.3 PASS on `dev`** — Jellyfin search is user-scoped, bounded and fully
-remote-friendly; Back now preserves the home/search/detail/player stack and
-restores the relevant result or search-entry focus while stale responses are
-ignored.
+**P03.4 PASS on `dev`** — Jellyfin playback negotiation now uses the actual
+Android/Media3 capabilities of the TV; compatible real MKV media use Direct
+Play instead of the former systematic HLS transcode fallback.
 
 ## Completed tasks
 
@@ -47,6 +46,68 @@ ignored.
 - `P03.3` — bounded Jellyfin title search, TV keyboard and D-pad result
   navigation, loading/empty/error states, detail/player reuse, stale-response
   suppression, and Back/focus restoration across search and home.
+- `P03.4` — hardware-aware Jellyfin DeviceProfile construction, bounded codec,
+  container, subtitle, channel and bitrate declarations, Direct Play-first
+  selection, HLS remux/transcode fallback, and real Android TV validation.
+
+## P03.4 verification — PASS (2026-11-16)
+
+- The root cause was the P02.1 placeholder `DeviceProfile`: it advertised only
+  MP4/M4V with H.264/AAC and exposed no codec limits or subtitle profiles.
+  Jellyfin therefore correctly rejected Direct Play for the real MKV media and
+  returned the sole H.264/AAC HLS profile. The app source selector already used
+  the correct Direct Play → Direct Stream → Transcode order; it was not the
+  source of the systematic HLS choice.
+- Startup now queries regular Android `MediaCodec` decoders, retains hardware
+  video decoders only, reads their supported profile/level, resolution and
+  bitrate, uses Media3 audio-route/passthrough capabilities and asks Media3's
+  subtitle decoder factory about embedded formats. Query failures advertise no
+  unproven Direct Play capability instead of crashing or guessing.
+- The resulting SDK 1.9.4 profile declares Media3-supported MP4/M4V/MOV, MKV,
+  WebM and TS combinations only when their detected video and audio codecs are
+  present. Codec profiles bound width, height, bitrate, AVC/HEVC profile and
+  level, audio is limited to the current route's channel count, and streaming
+  is capped at 120 Mbit/s. HLS MPEG-TS and fragmented MP4 profiles preserve
+  supported video/audio streams for Direct Stream/remux before full transcode.
+- Embedded subtitles are declared only when Media3 1.11.1 exposes a decoder;
+  only VTT/WebVTT is also declared for HLS. Unsupported SRT/VTT/TTML/ASS/SSA,
+  PGS, DVD or DVB subtitle variants fall back to server encoding. External
+  subtitles are deliberately not advertised because the current player does
+  not yet attach Jellyfin external subtitle URLs to the `MediaItem`.
+- On the authorized Android 14 TV, runtime detection reported H.264 up to
+  4096×2160 level 5.2, HEVC up to 4096×2160 level 153, VP8 up to 1920×1080,
+  VP9 and AV1 up to 4096×2160, MPEG-4 up to 720×576 and MPEG-2 up to
+  1920×1080. The active audio route reported up to eight channels with AAC,
+  AAC-LATM, AC-3, E-AC-3, MP2/MP3, Opus, Vorbis, FLAC, DTS/DCA and
+  TrueHD/MLP; ALAC was not advertised.
+- The corrected APK was installed with `-r`. Four distinct real samples were
+  each returned by Jellyfin and prepared as `DIRECT_PLAY` with an MKV direct
+  URL; rendered video confirmed actual playback rather than negotiation alone.
+  No Direct Stream or Transcode sample was available among those candidates,
+  so real fallback behavior is not claimed; focused tests cover incompatible
+  codec → transcode and Direct Stream-before-transcode selection.
+- On the Direct Play path, D-pad pause/resume and ±10-second seek worked. A
+  stop at 10:06 was persisted by Jellyfin and a fresh catalogue load resumed
+  the same media at 10:19. Immediate replay from an already-open detail still
+  uses that screen's cached pre-play resume position; refreshing the catalogue
+  obtains the server position. Back removed the foreground MediaSession and
+  released playback resources.
+- Context7 confirmed the Jellyfin Kotlin SDK DeviceProfile builders and
+  `PlaybackInfoDto` capability flags. The official Android TV client confirmed
+  the dynamic MediaCodec/profile principle, bitrate bounds, HLS outputs and
+  subtitle fallback model. Its GPL-2.0 license was reviewed; no client source
+  was copied into Seerrfin TV.
+- RED/GREEN regression coverage includes capability detection and failure,
+  DeviceProfile construction, the exact SDK payload flags/profile, source
+  ordering, incompatible-codec fallback, reporting and resume. The final fresh
+  JDK 17 run passed 138 unit tests with zero failures or errors and
+  `:app:assembleDebug` succeeded. Final process-scoped logs contained no crash,
+  URL, authorization, bearer, token, password or API-key marker, and temporary
+  captures containing catalogue or video data were removed.
+- Remaining scope: detailed HDR/Dolby Vision range constraints are not modeled
+  independently of decoder-reported HEVC profiles, external subtitle delivery
+  and explicit audio/subtitle track selection remain for P06.2, and a broader
+  real remux/transcode format matrix remains P06.1/P06.3 work.
 
 ## P03.3 verification — PASS (2026-11-16)
 

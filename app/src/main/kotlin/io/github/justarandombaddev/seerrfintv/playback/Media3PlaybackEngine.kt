@@ -3,6 +3,7 @@ package io.github.justarandombaddev.seerrfintv.playback
 import android.content.Context
 import android.os.Handler
 import android.os.Looper
+import android.util.Log
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
@@ -74,6 +75,10 @@ class Media3PlaybackEngine(context: Context) : PlaybackEngine {
 
     override fun prepare(source: JellyfinPlaybackSource) {
         check(!released)
+        Log.i(
+            "SeerrfinPlayback",
+            "Preparing method=${source.method} container=${source.container.orEmpty()}",
+        )
         playbackFailed = false
         mutableState.value = PlaybackEngineSnapshot(status = PlaybackEngineStatus.Preparing)
         httpDataSourceFactory
