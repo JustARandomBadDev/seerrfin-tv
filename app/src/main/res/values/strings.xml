@@ -44,6 +44,7 @@
     <string name="libraries_loading">Chargement du catalogue…</string>
     <string name="libraries_empty">Aucun contenu vidéo accessible.</string>
     <string name="home_filter_all">Tout</string>
+    <string name="home_search">Rechercher</string>
     <string name="libraries_retry">Réessayer</string>
     <string name="libraries_error_unreachable">Serveur inaccessible. Vérifiez le réseau et réessayez.</string>
     <string name="libraries_error_tls">Connexion HTTPS refusée. Vérifiez le certificat du serveur.</string>
@@ -69,6 +70,13 @@
     <string name="details_resume">Reprendre</string>
     <string name="details_back">Retour à l’accueil</string>
     <string name="details_playback_error">Lecture indisponible. Sélectionnez à nouveau ce média ou un autre épisode.</string>
+    <string name="search_title">Recherche Jellyfin</string>
+    <string name="search_subtitle">Trouvez un film, une série ou une vidéo</string>
+    <string name="search_hint">Titre à rechercher</string>
+    <string name="search_action">Rechercher</string>
+    <string name="search_help">OK ouvre le clavier · Rechercher lance la requête · Retour revient à l’accueil</string>
+    <string name="search_loading">Recherche en cours…</string>
+    <string name="search_empty">Aucun résultat pour cette recherche.</string>
     <string name="player_preparing">Préparation de la lecture…</string>
     <string name="player_playing">Lecture</string>
     <string name="player_paused">Pause</string>

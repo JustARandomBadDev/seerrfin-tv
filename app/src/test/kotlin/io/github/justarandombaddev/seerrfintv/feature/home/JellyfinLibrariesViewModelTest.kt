@@ -17,6 +17,7 @@ import io.github.justarandombaddev.seerrfintv.domain.repository.JellyfinLibrarie
 import io.github.justarandombaddev.seerrfintv.domain.repository.JellyfinHomeResult
 import io.github.justarandombaddev.seerrfintv.domain.repository.JellyfinEpisodesResult
 import io.github.justarandombaddev.seerrfintv.domain.repository.JellyfinSeriesDetailsResult
+import io.github.justarandombaddev.seerrfintv.domain.repository.JellyfinSearchResult
 import io.github.justarandombaddev.seerrfintv.domain.repository.JellyfinPlaybackResolutionResult
 import io.github.justarandombaddev.seerrfintv.domain.repository.JellyfinPlaybackReportResult
 import io.github.justarandombaddev.seerrfintv.domain.repository.JellyfinRepository
@@ -41,6 +42,98 @@ import org.junit.Test
 class JellyfinLibrariesViewModelTest {
     @get:Rule
     val mainDispatcherRule = MainDispatcherRule()
+
+    @Test
+    fun `search exposes results and back preserves home selection and focus`() =
+        runTest(mainDispatcherRule.dispatcher) {
+            val movie = testCatalogItem().copy(name = "Found Movie")
+            val repository =
+                FakeLibrariesRepository(
+                    result = JellyfinLibrariesResult.Success(listOf(testLibrary())),
+                    searchResult = JellyfinSearchResult.Success(listOf(movie)),
+                )
+            val viewModel = createViewModel(repository = repository)
+            advanceUntilIdle()
+            viewModel.rememberHomeFocus(testCatalogItem().id)
+            viewModel.selectLibrary(testLibrary().id)
+
+            viewModel.openSearch()
+            viewModel.onSearchQueryChanged("  Found  ")
+            viewModel.submitSearch()
+            advanceUntilIdle()
+
+            assertEquals(SearchStatus.Results, viewModel.uiState.value.search.status)
+            assertEquals("Found", viewModel.uiState.value.search.submittedQuery)
+            assertEquals(listOf(movie), viewModel.uiState.value.search.results)
+            assertEquals(listOf(SearchCall(SERVER_URL, testSession(), "Found")), repository.searchCalls)
+
+            viewModel.rememberSearchFocus(movie.id)
+            viewModel.openDetails(movie)
+            assertEquals(movie, viewModel.uiState.value.details.item)
+            viewModel.closeDetails()
+
+            assertEquals(SearchStatus.Results, viewModel.uiState.value.search.status)
+            assertEquals(movie.id, viewModel.uiState.value.search.focusedItemId)
+            viewModel.closeSearch()
+            assertEquals(false, viewModel.uiState.value.search.isActive)
+            assertEquals(true, viewModel.uiState.value.restoreSearchFocus)
+            assertEquals(testLibrary().id, viewModel.uiState.value.selectedLibraryId)
+            assertEquals(testCatalogItem().id, viewModel.uiState.value.focusedHomeItemId)
+        }
+
+    @Test
+    fun `search maps empty and error outcomes without clearing home`() =
+        runTest(mainDispatcherRule.dispatcher) {
+            val repository = FakeLibrariesRepository(result = JellyfinLibrariesResult.Success(listOf(testLibrary())))
+            val viewModel = createViewModel(repository = repository)
+            advanceUntilIdle()
+            viewModel.openSearch()
+            viewModel.onSearchQueryChanged("missing")
+
+            repository.searchResult = JellyfinSearchResult.Success(emptyList())
+            viewModel.submitSearch()
+            advanceUntilIdle()
+            assertEquals(SearchStatus.Empty, viewModel.uiState.value.search.status)
+
+            repository.searchResult = JellyfinSearchResult.Unreachable
+            viewModel.submitSearch()
+            advanceUntilIdle()
+            assertEquals(SearchStatus.Error, viewModel.uiState.value.search.status)
+            assertEquals(LibrariesUiError.Unreachable, viewModel.uiState.value.search.error)
+            assertEquals(1, viewModel.uiState.value.homeRows.size)
+        }
+
+    @Test
+    fun `late search response cannot replace a newer query or closed search`() =
+        runTest(mainDispatcherRule.dispatcher) {
+            val oldGate = CompletableDeferred<Unit>()
+            val oldMovie = testCatalogItem().copy(id = "00000000-0000-0000-0000-000000000101", name = "Old")
+            val newMovie = testCatalogItem().copy(id = "00000000-0000-0000-0000-000000000102", name = "New")
+            val repository =
+                FakeLibrariesRepository(
+                    result = JellyfinLibrariesResult.Success(listOf(testLibrary())),
+                    searchResult = JellyfinSearchResult.Success(listOf(oldMovie)),
+                    beforeSearchResult = { query -> if (query == "old") oldGate.await() },
+                )
+            val viewModel = createViewModel(repository = repository)
+            advanceUntilIdle()
+            viewModel.openSearch()
+            viewModel.onSearchQueryChanged("old")
+            viewModel.submitSearch()
+            runCurrent()
+
+            repository.searchResult = JellyfinSearchResult.Success(listOf(newMovie))
+            viewModel.onSearchQueryChanged("new")
+            viewModel.submitSearch()
+            advanceUntilIdle()
+            assertEquals(listOf(newMovie), viewModel.uiState.value.search.results)
+
+            viewModel.closeSearch()
+            oldGate.complete(Unit)
+            advanceUntilIdle()
+            assertEquals(false, viewModel.uiState.value.search.isActive)
+            assertEquals(listOf(newMovie), viewModel.uiState.value.search.results)
+        }
 
     @Test
     fun `opening a movie shows its detail without resolving playback`() =
@@ -781,6 +874,12 @@ private data class SeasonEpisodesCall(
     val seasonId: String,
 )
 
+private data class SearchCall(
+    val serverUrl: String,
+    val session: JellyfinSession,
+    val query: String,
+)
+
 private class FakeLibrariesRepository(
     var result: JellyfinLibrariesResult = JellyfinLibrariesResult.UnexpectedFailure,
     var homeResult: JellyfinHomeResult? = null,
@@ -789,8 +888,10 @@ private class FakeLibrariesRepository(
     var playbackFailure: Throwable? = null,
     var seriesResult: JellyfinSeriesDetailsResult = JellyfinSeriesDetailsResult.UnexpectedFailure,
     var episodesResult: JellyfinEpisodesResult = JellyfinEpisodesResult.UnexpectedFailure,
+    var searchResult: JellyfinSearchResult = JellyfinSearchResult.UnexpectedFailure,
     var beforeSeriesResult: suspend () -> Unit = {},
     var beforePlaybackResult: suspend () -> Unit = {},
+    var beforeSearchResult: suspend (String) -> Unit = {},
 ) : JellyfinRepository {
     val fetchCalls = mutableListOf<LibraryFetchCall>()
     val homeCalls = mutableListOf<HomeFetchCall>()
@@ -799,6 +900,7 @@ private class FakeLibrariesRepository(
     val reportCalls = mutableListOf<PlaybackReportCall>()
     val seriesCalls = mutableListOf<SeriesDetailsCall>()
     val episodeCalls = mutableListOf<SeasonEpisodesCall>()
+    val searchCalls = mutableListOf<SearchCall>()
 
     override suspend fun connect(serverUrl: String): JellyfinConnectionResult =
         JellyfinConnectionResult.UnexpectedFailure
@@ -839,6 +941,16 @@ private class FakeLibrariesRepository(
                     )
                 },
             )
+    }
+
+    override suspend fun searchCatalog(
+        serverUrl: String,
+        session: JellyfinSession,
+        query: String,
+    ): JellyfinSearchResult {
+        searchCalls += SearchCall(serverUrl, session, query)
+        beforeSearchResult(query)
+        return searchResult
     }
 
     override suspend fun resolvePlaybackSource(

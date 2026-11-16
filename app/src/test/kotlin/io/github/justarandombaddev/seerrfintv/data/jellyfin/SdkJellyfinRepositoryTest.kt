@@ -8,6 +8,7 @@ import io.github.justarandombaddev.seerrfintv.domain.repository.JellyfinPlayback
 import io.github.justarandombaddev.seerrfintv.domain.repository.JellyfinPlaybackReportResult
 import io.github.justarandombaddev.seerrfintv.domain.repository.JellyfinEpisodesResult
 import io.github.justarandombaddev.seerrfintv.domain.repository.JellyfinSeriesDetailsResult
+import io.github.justarandombaddev.seerrfintv.domain.repository.JellyfinSearchResult
 import io.github.justarandombaddev.seerrfintv.domain.model.JellyfinLibrary
 import io.github.justarandombaddev.seerrfintv.domain.model.JellyfinCatalogItem
 import io.github.justarandombaddev.seerrfintv.domain.model.JellyfinCatalogItemType
@@ -28,12 +29,77 @@ import org.jellyfin.sdk.api.client.exception.SecureConnectionException
 import org.jellyfin.sdk.api.client.exception.TimeoutException
 import org.jellyfin.sdk.model.api.PublicSystemInfo
 import org.jellyfin.sdk.model.api.BaseItemKind
+import org.jellyfin.sdk.model.api.ItemFilter
 import org.jellyfin.sdk.model.deviceprofile.buildDeviceProfile
 import org.junit.Assert.assertEquals
 import org.junit.Assert.fail
 import org.junit.Test
 
 class SdkJellyfinRepositoryTest {
+    @Test
+    fun `TV shows SDK request includes series without excluding folders`() {
+        val request =
+            buildHomeGetItemsRequest(
+                SdkHomeItemsRequest(
+                    serverUrl = TEST_SERVER_URL,
+                    accessToken = "test-access-token",
+                    userId = UUID.fromString(testSession().userId),
+                    libraryId = UUID.fromString(TEST_LIBRARY_ID),
+                    itemTypes = listOf(BaseItemKind.SERIES),
+                    limit = 20,
+                ),
+            )
+
+        assertEquals(listOf(BaseItemKind.SERIES), request.includeItemTypes)
+        assertEquals(emptyList<ItemFilter>(), request.filters)
+        assertEquals(UUID.fromString(TEST_LIBRARY_ID), request.parentId)
+        assertEquals(20, request.limit)
+    }
+
+    @Test
+    fun `movies and home videos SDK requests preserve non folder filtering`() {
+        listOf(
+            listOf(BaseItemKind.MOVIE),
+            listOf(BaseItemKind.VIDEO, BaseItemKind.MOVIE),
+        ).forEach { itemTypes ->
+            val request =
+                buildHomeGetItemsRequest(
+                    SdkHomeItemsRequest(
+                        serverUrl = TEST_SERVER_URL,
+                        accessToken = "test-access-token",
+                        userId = UUID.fromString(testSession().userId),
+                        libraryId = UUID.fromString(TEST_LIBRARY_ID),
+                        itemTypes = itemTypes,
+                        limit = 20,
+                    ),
+                )
+
+            assertEquals(itemTypes, request.includeItemTypes)
+            assertEquals(listOf(ItemFilter.IS_NOT_FOLDER), request.filters)
+        }
+    }
+
+    @Test
+    fun `catalog search SDK request accepts movies series and videos without incompatible filters`() {
+        val catalogTypes = listOf(BaseItemKind.MOVIE, BaseItemKind.SERIES, BaseItemKind.VIDEO)
+        val request =
+            buildSearchGetItemsRequest(
+                SdkSearchItemsRequest(
+                    serverUrl = TEST_SERVER_URL,
+                    accessToken = "test-access-token",
+                    userId = UUID.fromString(testSession().userId),
+                    query = "Example",
+                    itemTypes = catalogTypes,
+                    limit = 50,
+                ),
+            )
+
+        assertEquals(catalogTypes, request.includeItemTypes)
+        assertEquals(emptyList<ItemFilter>(), request.filters)
+        assertEquals("Example", request.searchTerm)
+        assertEquals(50, request.limit)
+    }
+
     @Test
     fun `series details load seasons and the first season episodes with resume data`() =
         runTest {
@@ -203,6 +269,53 @@ class SdkJellyfinRepositoryTest {
                                     playbackPositionTicks = 120_000,
                                 ),
                             ),
+                        ),
+                    ),
+                ),
+                result,
+            )
+        }
+
+    @Test
+    fun `catalog search sends a bounded user scoped query and maps playable media`() =
+        runTest {
+            val requests = mutableListOf<SdkSearchItemsRequest>()
+            val repository =
+                repositoryWithSearch { request ->
+                    requests += request
+                    listOf(
+                        SdkCatalogItem(
+                            id = "00000000-0000-0000-0000-000000000100",
+                            name = "Example Movie",
+                            type = BaseItemKind.MOVIE.name,
+                            productionYear = 2026,
+                            playbackPositionTicks = 120_000,
+                        ),
+                    )
+                }
+
+            val result = repository.searchCatalog(TEST_SERVER_URL, testSession(), "Example")
+
+            assertEquals(
+                SearchRequestSummary(
+                    query = "Example",
+                    userId = UUID.fromString(testSession().userId),
+                    itemTypes = listOf(BaseItemKind.MOVIE, BaseItemKind.SERIES, BaseItemKind.VIDEO),
+                    limit = 50,
+                ),
+                requests.single().let {
+                    SearchRequestSummary(it.query, it.userId, it.itemTypes, it.limit)
+                },
+            )
+            assertEquals(
+                JellyfinSearchResult.Success(
+                    listOf(
+                        JellyfinCatalogItem(
+                            id = "00000000-0000-0000-0000-000000000100",
+                            name = "Example Movie",
+                            type = JellyfinCatalogItemType.Movie,
+                            productionYear = 2026,
+                            playbackPositionTicks = 120_000,
                         ),
                     ),
                 ),
@@ -954,6 +1067,18 @@ class SdkJellyfinRepositoryTest {
             homeItemProvider = provider,
         )
 
+    private fun repositoryWithSearch(
+        provider: JellyfinSearchItemProvider,
+    ): SdkJellyfinRepository =
+        SdkJellyfinRepository(
+            probe = JellyfinServerProbe { PublicSystemInfo() },
+            authenticator = JellyfinUserAuthenticator { _, _, _ -> error("Not used by search tests") },
+            libraryProvider = JellyfinLibraryProvider { _, _, _ -> emptyList() },
+            playableItemProvider = JellyfinPlayableItemProvider { SdkPlayableItemPage(emptyList(), 0) },
+            playbackInfoProvider = JellyfinPlaybackInfoProvider { playbackInfo() },
+            searchItemProvider = provider,
+        )
+
     private fun repositoryWithPlayback(
         pageSize: Int = 50,
         itemProvider: JellyfinPlayableItemProvider =
@@ -1082,6 +1207,13 @@ private data class LibraryCall(
 
 private data class HomeRequestSummary(
     val libraryId: String,
+    val itemTypes: List<BaseItemKind>,
+    val limit: Int,
+)
+
+private data class SearchRequestSummary(
+    val query: String,
+    val userId: UUID,
     val itemTypes: List<BaseItemKind>,
     val limit: Int,
 )

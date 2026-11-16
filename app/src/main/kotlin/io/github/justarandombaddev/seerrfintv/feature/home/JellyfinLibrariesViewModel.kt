@@ -14,6 +14,7 @@ import io.github.justarandombaddev.seerrfintv.domain.repository.JellyfinLibrarie
 import io.github.justarandombaddev.seerrfintv.domain.repository.JellyfinHomeResult
 import io.github.justarandombaddev.seerrfintv.domain.repository.JellyfinEpisodesResult
 import io.github.justarandombaddev.seerrfintv.domain.repository.JellyfinSeriesDetailsResult
+import io.github.justarandombaddev.seerrfintv.domain.repository.JellyfinSearchResult
 import io.github.justarandombaddev.seerrfintv.domain.repository.JellyfinPlaybackResolutionResult
 import io.github.justarandombaddev.seerrfintv.domain.repository.JellyfinRepository
 import io.github.justarandombaddev.seerrfintv.domain.repository.ServerSettingsRepository
@@ -73,6 +74,24 @@ enum class MediaDetailsStatus {
     Error,
 }
 
+enum class SearchStatus {
+    Editing,
+    Loading,
+    Results,
+    Empty,
+    Error,
+}
+
+data class JellyfinSearchUiState(
+    val isActive: Boolean = false,
+    val status: SearchStatus = SearchStatus.Editing,
+    val query: String = "",
+    val submittedQuery: String = "",
+    val results: List<JellyfinCatalogItem> = emptyList(),
+    val focusedItemId: String? = null,
+    val error: LibrariesUiError? = null,
+)
+
 data class JellyfinMediaDetailsUiState(
     val status: MediaDetailsStatus = MediaDetailsStatus.Closed,
     val item: JellyfinCatalogItem? = null,
@@ -97,6 +116,9 @@ data class JellyfinLibrariesUiState(
     val playbackSource: JellyfinPlaybackSource? = null,
     val playbackError: LibrariesUiError? = null,
     val details: JellyfinMediaDetailsUiState = JellyfinMediaDetailsUiState(),
+    val search: JellyfinSearchUiState = JellyfinSearchUiState(),
+    val focusedHomeItemId: String? = null,
+    val restoreSearchFocus: Boolean = false,
 ) {
     val isLoading: Boolean
         get() = status == LibrariesStatus.Restoring || status == LibrariesStatus.Loading
@@ -115,6 +137,7 @@ class JellyfinLibrariesViewModel(
     val uiState: StateFlow<JellyfinLibrariesUiState> = mutableUiState.asStateFlow()
     private var nextLoginRequestId = 0
     private var activeSession: JellyfinSession? = null
+    private var searchGeneration = 0L
 
     init {
         restoreAndLoad(serverUrl = null, initialLoad = true)
@@ -146,7 +169,84 @@ class JellyfinLibrariesViewModel(
         val state = mutableUiState.value
         if (state.status != LibrariesStatus.Success) return
         if (libraryId != null && state.libraries.none { it.id == libraryId }) return
-        mutableUiState.value = state.copy(selectedLibraryId = libraryId)
+        mutableUiState.value = state.copy(selectedLibraryId = libraryId, restoreSearchFocus = false)
+    }
+
+    fun rememberHomeFocus(itemId: String) {
+        val state = mutableUiState.value
+        if (state.homeRows.any { row -> row.items.any { it.id == itemId } }) {
+            mutableUiState.value = state.copy(focusedHomeItemId = itemId, restoreSearchFocus = false)
+        }
+    }
+
+    fun openSearch() {
+        val state = mutableUiState.value
+        if (state.status != LibrariesStatus.Success || state.search.isActive) return
+        mutableUiState.value =
+            state.copy(
+                search = state.search.copy(isActive = true),
+                restoreSearchFocus = true,
+            )
+    }
+
+    fun closeSearch() {
+        val state = mutableUiState.value
+        if (!state.search.isActive || state.details.status != MediaDetailsStatus.Closed || state.playbackSource != null) return
+        searchGeneration += 1
+        mutableUiState.value = state.copy(search = state.search.copy(isActive = false))
+    }
+
+    fun onSearchQueryChanged(query: String) {
+        val state = mutableUiState.value
+        if (!state.search.isActive) return
+        searchGeneration += 1
+        mutableUiState.value =
+            state.copy(
+                search =
+                    state.search.copy(
+                        status = SearchStatus.Editing,
+                        query = query,
+                        error = null,
+                    ),
+            )
+    }
+
+    fun rememberSearchFocus(itemId: String) {
+        val state = mutableUiState.value
+        if (state.search.results.any { it.id == itemId }) {
+            mutableUiState.value = state.copy(search = state.search.copy(focusedItemId = itemId))
+        }
+    }
+
+    fun submitSearch() {
+        val state = mutableUiState.value
+        val serverUrl = state.serverUrl ?: return
+        val session = activeSession ?: return
+        val query = state.search.query.trim()
+        if (!state.search.isActive || state.status != LibrariesStatus.Success || query.isEmpty()) return
+        val generation = ++searchGeneration
+        mutableUiState.value =
+            state.copy(
+                search =
+                    state.search.copy(
+                        status = SearchStatus.Loading,
+                        submittedQuery = query,
+                        results = emptyList(),
+                        focusedItemId = null,
+                        error = null,
+                    ),
+            )
+        viewModelScope.launch(ioDispatcher) {
+            val result =
+                try {
+                    jellyfinRepository.searchCatalog(serverUrl, session, query)
+                } catch (error: CancellationException) {
+                    throw error
+                } catch (_: Exception) {
+                    JellyfinSearchResult.UnexpectedFailure
+                }
+            showSearchResult(generation, query, result)
+        }
     }
 
     fun openDetails(item: JellyfinCatalogItem) {
@@ -156,7 +256,7 @@ class JellyfinLibrariesViewModel(
         if (
             state.status != LibrariesStatus.Success ||
             state.playbackStatus == PlaybackResolutionStatus.Loading ||
-            state.visibleHomeRows.none { row -> row.items.any { it.id == item.id && it.type == item.type } }
+            !isKnownDetailItem(state, item)
         ) {
             return
         }
@@ -308,7 +408,9 @@ class JellyfinLibrariesViewModel(
         when (item.type) {
             JellyfinCatalogItemType.Movie,
             JellyfinCatalogItemType.Video,
-            -> state.homeRows.any { row -> row.items.any { it.id == item.id && it.type == item.type } }
+            ->
+                state.homeRows.any { row -> row.items.any { it.id == item.id && it.type == item.type } } ||
+                    state.search.results.any { it.id == item.id && it.type == item.type }
 
             JellyfinCatalogItemType.Episode ->
                 state.details.status == MediaDetailsStatus.Ready &&
@@ -316,6 +418,52 @@ class JellyfinLibrariesViewModel(
 
             JellyfinCatalogItemType.Series -> false
         }
+
+    private fun isKnownDetailItem(
+        state: JellyfinLibrariesUiState,
+        item: JellyfinCatalogItem,
+    ): Boolean =
+        state.visibleHomeRows.any { row -> row.items.any { it.id == item.id && it.type == item.type } } ||
+            (state.search.isActive && state.search.results.any { it.id == item.id && it.type == item.type })
+
+    private suspend fun showSearchResult(
+        generation: Long,
+        query: String,
+        result: JellyfinSearchResult,
+    ) {
+        val state = mutableUiState.value
+        if (
+            generation != searchGeneration ||
+            !state.search.isActive ||
+            state.search.status != SearchStatus.Loading ||
+            state.search.submittedQuery != query
+        ) {
+            return
+        }
+        when (result) {
+            is JellyfinSearchResult.Success ->
+                mutableUiState.value =
+                    state.copy(
+                        search =
+                            state.search.copy(
+                                status = if (result.items.isEmpty()) SearchStatus.Empty else SearchStatus.Results,
+                                results = result.items,
+                                error = null,
+                            ),
+                    )
+            JellyfinSearchResult.InvalidSession -> expireSessionFromDetails()
+            JellyfinSearchResult.Unreachable -> showSearchError(LibrariesUiError.Unreachable)
+            JellyfinSearchResult.SecureConnectionFailed -> showSearchError(LibrariesUiError.SecureConnection)
+            JellyfinSearchResult.ServerRejected -> showSearchError(LibrariesUiError.ServerRejected)
+            JellyfinSearchResult.InvalidResponse -> showSearchError(LibrariesUiError.InvalidResponse)
+            JellyfinSearchResult.UnexpectedFailure -> showSearchError(LibrariesUiError.Unexpected)
+        }
+    }
+
+    private fun showSearchError(error: LibrariesUiError) {
+        val state = mutableUiState.value
+        mutableUiState.value = state.copy(search = state.search.copy(status = SearchStatus.Error, error = error))
+    }
 
     private suspend fun showSeriesDetails(
         seriesId: String,

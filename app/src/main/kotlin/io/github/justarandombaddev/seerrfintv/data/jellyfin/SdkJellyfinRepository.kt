@@ -19,6 +19,7 @@ import io.github.justarandombaddev.seerrfintv.domain.repository.JellyfinLibrarie
 import io.github.justarandombaddev.seerrfintv.domain.repository.JellyfinHomeResult
 import io.github.justarandombaddev.seerrfintv.domain.repository.JellyfinEpisodesResult
 import io.github.justarandombaddev.seerrfintv.domain.repository.JellyfinSeriesDetailsResult
+import io.github.justarandombaddev.seerrfintv.domain.repository.JellyfinSearchResult
 import io.github.justarandombaddev.seerrfintv.domain.repository.JellyfinPlaybackResolutionResult
 import io.github.justarandombaddev.seerrfintv.domain.repository.JellyfinPlaybackReportResult
 import io.github.justarandombaddev.seerrfintv.domain.repository.JellyfinRepository
@@ -151,6 +152,56 @@ fun interface JellyfinHomeItemProvider {
     suspend fun getLatestItems(request: SdkHomeItemsRequest): List<SdkCatalogItem>
 }
 
+data class SdkSearchItemsRequest(
+    val serverUrl: String,
+    val accessToken: String,
+    val userId: UUID,
+    val query: String,
+    val itemTypes: List<BaseItemKind>,
+    val limit: Int,
+) {
+    override fun toString(): String = "SdkSearchItemsRequest(<redacted>)"
+}
+
+internal fun buildHomeGetItemsRequest(request: SdkHomeItemsRequest) =
+    GetItemsRequest(
+        userId = request.userId,
+        limit = request.limit,
+        recursive = true,
+        sortOrder = listOf(SortOrder.DESCENDING),
+        parentId = request.libraryId,
+        includeItemTypes = request.itemTypes,
+        filters = request.itemTypes.catalogItemFilters(),
+        isMissing = false,
+        sortBy = listOf(ItemSortBy.DATE_CREATED),
+        enableUserData = true,
+        enableTotalRecordCount = false,
+        enableImages = false,
+    )
+
+internal fun buildSearchGetItemsRequest(request: SdkSearchItemsRequest) =
+    GetItemsRequest(
+        userId = request.userId,
+        limit = request.limit,
+        recursive = true,
+        searchTerm = request.query,
+        includeItemTypes = request.itemTypes,
+        filters = request.itemTypes.catalogItemFilters(),
+        isMissing = false,
+        sortBy = listOf(ItemSortBy.SORT_NAME),
+        sortOrder = listOf(SortOrder.ASCENDING),
+        enableUserData = true,
+        enableTotalRecordCount = false,
+        enableImages = false,
+    )
+
+private fun List<BaseItemKind>.catalogItemFilters(): List<ItemFilter> =
+    if (BaseItemKind.SERIES in this) emptyList() else listOf(ItemFilter.IS_NOT_FOLDER)
+
+fun interface JellyfinSearchItemProvider {
+    suspend fun search(request: SdkSearchItemsRequest): List<SdkCatalogItem>
+}
+
 data class SdkSeasonItem(
     val id: String,
     val name: String,
@@ -254,6 +305,7 @@ class SdkJellyfinRepository internal constructor(
     private val playableItemProvider: JellyfinPlayableItemProvider,
     private val playbackInfoProvider: JellyfinPlaybackInfoProvider,
     private val homeItemProvider: JellyfinHomeItemProvider = JellyfinHomeItemProvider { emptyList() },
+    private val searchItemProvider: JellyfinSearchItemProvider = JellyfinSearchItemProvider { emptyList() },
     private val seriesProvider: JellyfinSeriesProvider = EmptyJellyfinSeriesProvider,
     private val playbackReportProvider: JellyfinPlaybackReportProvider = JellyfinPlaybackReportProvider {},
     private val playbackPageSize: Int = PLAYBACK_PAGE_SIZE,
@@ -265,6 +317,7 @@ class SdkJellyfinRepository internal constructor(
         playableItemProvider = createPlayableItemProvider(jellyfin),
         playbackInfoProvider = createPlaybackInfoProvider(jellyfin),
         homeItemProvider = createHomeItemProvider(jellyfin),
+        searchItemProvider = createSearchItemProvider(jellyfin),
         seriesProvider = createSeriesProvider(jellyfin),
         playbackReportProvider = createPlaybackReportProvider(jellyfin),
     )
@@ -435,6 +488,54 @@ class SdkJellyfinRepository internal constructor(
             JellyfinHomeResult.UnexpectedFailure
         } catch (_: Exception) {
             JellyfinHomeResult.UnexpectedFailure
+        }
+    }
+
+    override suspend fun searchCatalog(
+        serverUrl: String,
+        session: JellyfinSession,
+        query: String,
+    ): JellyfinSearchResult {
+        if (
+            serverUrl.isBlank() ||
+            session.accessToken.isBlank() ||
+            session.userId.isBlank() ||
+            session.serverId.isBlank()
+        ) {
+            return JellyfinSearchResult.InvalidSession
+        }
+        val userId = session.userId.toUuidOrNull() ?: return JellyfinSearchResult.InvalidSession
+        val normalizedQuery = query.trim()
+        if (normalizedQuery.isEmpty()) return JellyfinSearchResult.Success(emptyList())
+
+        return try {
+            val items =
+                searchItemProvider
+                    .search(
+                        SdkSearchItemsRequest(
+                            serverUrl = serverUrl,
+                            accessToken = session.accessToken,
+                            userId = userId,
+                            query = normalizedQuery,
+                            itemTypes = SEARCH_ITEM_TYPES,
+                            limit = SEARCH_ITEM_LIMIT,
+                        ),
+                    ).map { item -> item.toCatalogItem() ?: return JellyfinSearchResult.InvalidResponse }
+            JellyfinSearchResult.Success(items)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: InvalidStatusException) {
+            if (error.status == HTTP_UNAUTHORIZED) JellyfinSearchResult.InvalidSession else JellyfinSearchResult.ServerRejected
+        } catch (_: TimeoutException) {
+            JellyfinSearchResult.Unreachable
+        } catch (_: SecureConnectionException) {
+            JellyfinSearchResult.SecureConnectionFailed
+        } catch (_: InvalidContentException) {
+            JellyfinSearchResult.InvalidResponse
+        } catch (_: ApiClientException) {
+            JellyfinSearchResult.UnexpectedFailure
+        } catch (_: Exception) {
+            JellyfinSearchResult.UnexpectedFailure
         }
     }
 
@@ -811,6 +912,7 @@ class SdkJellyfinRepository internal constructor(
         const val HTTP_UNAUTHORIZED = 401
         const val PLAYBACK_PAGE_SIZE = 50
         const val HOME_ROW_ITEM_LIMIT = 20
+        const val SEARCH_ITEM_LIMIT = 50
         const val EPISODE_LIMIT = 200
         const val TICKS_PER_MILLISECOND = 10_000L
 
@@ -919,21 +1021,29 @@ class SdkJellyfinRepository internal constructor(
                         httpClientOptions = HTTP_CLIENT_OPTIONS,
                     ).libraryApi
                     .getItems(
-                        request =
-                            GetItemsRequest(
-                                userId = request.userId,
-                                limit = request.limit,
-                                recursive = true,
-                                sortOrder = listOf(SortOrder.DESCENDING),
-                                parentId = request.libraryId,
-                                includeItemTypes = request.itemTypes,
-                                filters = listOf(ItemFilter.IS_NOT_FOLDER),
-                                isMissing = false,
-                                sortBy = listOf(ItemSortBy.DATE_CREATED),
-                                enableUserData = true,
-                                enableTotalRecordCount = false,
-                                enableImages = false,
-                            ),
+                        request = buildHomeGetItemsRequest(request),
+                    ).content.items
+                    .map { item ->
+                        SdkCatalogItem(
+                            id = item.id.toString(),
+                            name = item.name.orEmpty(),
+                            type = item.type.name,
+                            productionYear = item.productionYear,
+                            playbackPositionTicks = item.userData?.playbackPositionTicks ?: 0,
+                        )
+                    }
+            }
+
+        fun createSearchItemProvider(jellyfin: Jellyfin): JellyfinSearchItemProvider =
+            JellyfinSearchItemProvider { request ->
+                jellyfin
+                    .createApi(
+                        baseUrl = request.serverUrl,
+                        accessToken = request.accessToken,
+                        httpClientOptions = HTTP_CLIENT_OPTIONS,
+                    ).libraryApi
+                    .getItems(
+                        request = buildSearchGetItemsRequest(request),
                     ).content.items
                     .map { item ->
                         SdkCatalogItem(
@@ -1077,6 +1187,13 @@ class SdkJellyfinRepository internal constructor(
             listOf(
                 BaseItemKind.MOVIE,
                 BaseItemKind.EPISODE,
+                BaseItemKind.VIDEO,
+            )
+
+        val SEARCH_ITEM_TYPES =
+            listOf(
+                BaseItemKind.MOVIE,
+                BaseItemKind.SERIES,
                 BaseItemKind.VIDEO,
             )
 

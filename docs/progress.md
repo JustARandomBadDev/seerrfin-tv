@@ -2,10 +2,10 @@
 
 ## Current status
 
-**P03.2 PASS on `dev`** — every visible catalogue item now opens a remote-first
-detail screen; series load typed Jellyfin seasons and episodes, season changes
-stay bounded and user-scoped, and movies or exact episodes enter the existing
-resume-aware P02 playback and reporting pipeline.
+**P03.3 PASS on `dev`** — Jellyfin search is user-scoped, bounded and fully
+remote-friendly; Back now preserves the home/search/detail/player stack and
+restores the relevant result or search-entry focus while stale responses are
+ignored.
 
 ## Completed tasks
 
@@ -44,6 +44,53 @@ resume-aware P02 playback and reporting pipeline.
 - `P03.2` — movie/video details, typed series-season-episode loading,
   remote-focusable season and episode rows, exact episode playback, and Back
   navigation that preserves the loaded home and selected season state.
+- `P03.3` — bounded Jellyfin title search, TV keyboard and D-pad result
+  navigation, loading/empty/error states, detail/player reuse, stale-response
+  suppression, and Back/focus restoration across search and home.
+
+## P03.3 verification — PASS (2026-11-16)
+
+- A post-verification regression fix removed the incompatible
+  `IS_NOT_FOLDER` filter whenever a catalogue request includes `SERIES`, while
+  retaining it for Movies and Home Videos. Tests now exercise the exact
+  `GetItemsRequest` builders used by the SDK providers: TV Shows and global
+  search accept series, Movies/Home Videos retain their filtering, user scope
+  and the 20/50 item limits are unchanged.
+- The JDK 17 unit suite and debug assembly passed after the fix. The APK was
+  reinstalled on the authorized Android 14 `Smart_TV_Pro`: the real `Series`
+  filter and row rendered, the AZERTY grid entered `from`, and search returned
+  the real 2022 series. Its detail loaded four seasons and episodes, Season 2
+  loaded its episode row, a real Season 1 episode rendered through the existing
+  player, and Back returned to the detail. The preceding traversal also
+  restored the focused search result then the selected `Series` home state with
+  focus on `Rechercher`.
+- `FROM` was not among the 20 recent-series cards exposed by the bounded P03.1
+  home row after traversing all 20 positions; it remains available through
+  search. The existing row limit and date-created ordering were intentionally
+  preserved. Process-scoped logs contained no crash or sensitive marker.
+- Context7 confirmed Jellyfin Kotlin SDK `LibraryApi.getItems` and the
+  `GetItemsRequest` fields used for recursive user-scoped `searchTerm` queries.
+  Search is limited to 50 Movie, Series or Video items, retains resume data,
+  maps SDK failures to app-owned states and introduces no undocumented endpoint.
+- The existing home ViewModel owns query, results, errors and focused identities.
+  Query edits, a newer submission, Back and screen changes invalidate older
+  responses; search results open the unchanged P03.2 detail flow and exact
+  playable items reuse the unchanged P02 negotiation, Media3 and reporting path.
+- RED/GREEN tests cover the SDK request/mapping boundary, results/empty/error
+  state, detail and Back preservation, late-response suppression, and TV field
+  keys. The final forced JDK 17 run passed 129 unit tests with zero failures or
+  errors, and `:app:assembleDebug` succeeded.
+- The final APK installed with `-r` on the authorized Android 14 `Smart_TV_Pro`.
+  The real AZERTY TV keyboard entered a title, the server returned two results,
+  D-pad Down focused the second, its detail opened, and the existing player
+  rendered real video. Back returned player → detail → the same focused result
+  → the unchanged `Movies` home; a follow-up fix restored focus specifically to
+  `Rechercher` when leaving the search screen. A fictitious query displayed the
+  real empty-result state.
+- Late responses and retryable network errors are deterministic unit tests
+  rather than induced against the user-owned server. Final process-scoped logs
+  contained no crash, URL, authorization, bearer, token, password, or API-key
+  marker; `git diff --check` passed and personal catalogue captures were removed.
 
 ## P03.2 verification — PASS (2026-11-16)
 
@@ -374,5 +421,5 @@ will be checked against the target deployment.
 
 ## Next task
 
-`P03.3` — remote-friendly search, back handling and focus recovery. It has not
-been started and requires a new explicit request.
+`P04.1` — validate the supported Seerr authentication mode and per-user
+permissions. It has not been started and requires a new explicit request.

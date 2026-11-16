@@ -21,6 +21,7 @@ import io.github.justarandombaddev.seerrfintv.feature.login.JellyfinLoginScreen
 import io.github.justarandombaddev.seerrfintv.feature.login.JellyfinLoginStatus
 import io.github.justarandombaddev.seerrfintv.feature.login.JellyfinLoginViewModel
 import io.github.justarandombaddev.seerrfintv.feature.player.PlayerRoute
+import io.github.justarandombaddev.seerrfintv.feature.search.JellyfinSearchScreen
 import io.github.justarandombaddev.seerrfintv.ui.theme.SeerrfinTheme
 
 class MainActivity : ComponentActivity() {
@@ -72,6 +73,17 @@ class MainActivity : ComponentActivity() {
                         onSeasonSelected = librariesViewModel::selectSeason,
                         onPlay = librariesViewModel::resolveItem,
                         onBack = librariesViewModel::closeDetails,
+                    )
+                } else if (
+                    librariesState.status == LibrariesStatus.Success && librariesState.search.isActive
+                ) {
+                    JellyfinSearchScreen(
+                        state = librariesState.search,
+                        onQueryChanged = librariesViewModel::onSearchQueryChanged,
+                        onSubmit = librariesViewModel::submitSearch,
+                        onResultFocused = librariesViewModel::rememberSearchFocus,
+                        onResultActivated = librariesViewModel::openDetails,
+                        onBack = librariesViewModel::closeSearch,
                     )
                 } else {
                     when (librariesState.status) {
@@ -134,6 +146,8 @@ class MainActivity : ComponentActivity() {
                                 onRetry = librariesViewModel::retry,
                                 onLibrarySelected = librariesViewModel::selectLibrary,
                                 onItemActivated = librariesViewModel::openDetails,
+                                onSearch = librariesViewModel::openSearch,
+                                onItemFocused = librariesViewModel::rememberHomeFocus,
                             )
                     }
                 }

@@ -28,6 +28,12 @@ interface JellyfinRepository {
         libraries: List<JellyfinLibrary>,
     ): JellyfinHomeResult = JellyfinHomeResult.UnexpectedFailure
 
+    suspend fun searchCatalog(
+        serverUrl: String,
+        session: JellyfinSession,
+        query: String,
+    ): JellyfinSearchResult = JellyfinSearchResult.UnexpectedFailure
+
     suspend fun fetchSeriesDetails(
         serverUrl: String,
         session: JellyfinSession,
@@ -58,6 +64,17 @@ interface JellyfinRepository {
         session: JellyfinSession,
         report: JellyfinPlaybackReport,
     ): JellyfinPlaybackReportResult = JellyfinPlaybackReportResult.UnexpectedFailure
+}
+
+sealed interface JellyfinSearchResult {
+    data class Success(val items: List<JellyfinCatalogItem>) : JellyfinSearchResult
+
+    data object InvalidSession : JellyfinSearchResult
+    data object Unreachable : JellyfinSearchResult
+    data object SecureConnectionFailed : JellyfinSearchResult
+    data object ServerRejected : JellyfinSearchResult
+    data object InvalidResponse : JellyfinSearchResult
+    data object UnexpectedFailure : JellyfinSearchResult
 }
 
 sealed interface JellyfinSeriesDetailsResult {

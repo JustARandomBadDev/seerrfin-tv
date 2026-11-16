@@ -19,6 +19,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -39,6 +40,8 @@ fun JellyfinLibrariesScreen(
     onRetry: () -> Unit,
     onLibrarySelected: (String?) -> Unit,
     onItemActivated: (JellyfinCatalogItem) -> Unit,
+    onSearch: () -> Unit,
+    onItemFocused: (String) -> Unit,
 ) {
     val initialFocusRequester = remember { FocusRequester() }
 
@@ -120,12 +123,26 @@ fun JellyfinLibrariesScreen(
                         )
                     }
                     item(key = "library-filters") {
-                        LibraryFilters(
-                            libraries = state.libraries,
-                            selectedLibraryId = state.selectedLibraryId,
-                            initialFocusRequester = initialFocusRequester,
-                            onLibrarySelected = onLibrarySelected,
-                        )
+                        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            Button(
+                                onClick = onSearch,
+                                modifier =
+                                    if (state.restoreSearchFocus) {
+                                        Modifier.focusRequester(initialFocusRequester)
+                                    } else {
+                                        Modifier
+                                    },
+                            ) {
+                                Text(stringResource(R.string.home_search))
+                            }
+                            LibraryFilters(
+                                libraries = state.libraries,
+                                selectedLibraryId = state.selectedLibraryId,
+                                initialFocusRequester = initialFocusRequester,
+                                restoreItemFocus = state.focusedHomeItemId != null || state.restoreSearchFocus,
+                                onLibrarySelected = onLibrarySelected,
+                            )
+                        }
                     }
                     items(
                         items = state.visibleHomeRows,
@@ -151,7 +168,17 @@ fun JellyfinLibrariesScreen(
                                         onClick = {
                                             catalogItemActivationRequest(state, item)?.let(onItemActivated)
                                         },
-                                        modifier = Modifier.widthIn(min = 220.dp, max = 280.dp).height(112.dp),
+                                        modifier =
+                                            Modifier
+                                                .widthIn(min = 220.dp, max = 280.dp)
+                                                .height(112.dp)
+                                                .then(
+                                                    if (item.id == state.focusedHomeItemId) {
+                                                        Modifier.focusRequester(initialFocusRequester)
+                                                    } else {
+                                                        Modifier
+                                                    },
+                                                ).onFocusChanged { if (it.isFocused) onItemFocused(item.id) },
                                     ) {
                                         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                                             Text(
@@ -182,6 +209,7 @@ private fun LibraryFilters(
     libraries: List<JellyfinLibrary>,
     selectedLibraryId: String?,
     initialFocusRequester: FocusRequester,
+    restoreItemFocus: Boolean,
     onLibrarySelected: (String?) -> Unit,
 ) {
     LazyRow(
@@ -191,7 +219,8 @@ private fun LibraryFilters(
         item(key = "all") {
             Button(
                 onClick = { onLibrarySelected(null) },
-                modifier = Modifier.focusRequester(initialFocusRequester),
+                modifier =
+                    if (restoreItemFocus) Modifier else Modifier.focusRequester(initialFocusRequester),
             ) {
                 Text(
                     text = stringResource(R.string.home_filter_all),
