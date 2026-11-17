@@ -1,6 +1,18 @@
 package io.github.justarandombaddev.seerrfintv.domain.repository
 
+import io.github.justarandombaddev.seerrfintv.domain.model.SeerrMediaRequest
+import io.github.justarandombaddev.seerrfintv.domain.model.SeerrMediaSummary
+import io.github.justarandombaddev.seerrfintv.domain.model.SeerrMediaType
+import io.github.justarandombaddev.seerrfintv.domain.model.SeerrMovieDetails
+import io.github.justarandombaddev.seerrfintv.domain.model.SeerrPagedResult
+import io.github.justarandombaddev.seerrfintv.domain.model.SeerrRequestFilter
+import io.github.justarandombaddev.seerrfintv.domain.model.SeerrRequestPage
+import io.github.justarandombaddev.seerrfintv.domain.model.SeerrRequestSort
 import io.github.justarandombaddev.seerrfintv.domain.model.SeerrSession
+import io.github.justarandombaddev.seerrfintv.domain.model.SeerrSortDirection
+import io.github.justarandombaddev.seerrfintv.domain.model.SeerrTimeWindow
+import io.github.justarandombaddev.seerrfintv.domain.model.SeerrTvDetails
+import io.github.justarandombaddev.seerrfintv.domain.model.SeerrTvSeasonSelection
 import io.github.justarandombaddev.seerrfintv.domain.model.SeerrUser
 
 data class SeerrQuickConnectChallenge(
@@ -73,6 +85,24 @@ sealed interface SeerrSessionValidationResult {
     data object InvalidResponse : SeerrSessionValidationResult
 }
 
+sealed interface SeerrApiResult<out T> {
+    data class Success<T>(val value: T) : SeerrApiResult<T>
+
+    data object SessionExpired : SeerrApiResult<Nothing>
+
+    data object PermissionDenied : SeerrApiResult<Nothing>
+
+    data object NotFound : SeerrApiResult<Nothing>
+
+    data object Unreachable : SeerrApiResult<Nothing>
+
+    data object SecureConnectionFailed : SeerrApiResult<Nothing>
+
+    data object ServerRejected : SeerrApiResult<Nothing>
+
+    data object InvalidResponse : SeerrApiResult<Nothing>
+}
+
 interface SeerrRepository {
     suspend fun initiateQuickConnect(serverUrl: String): SeerrQuickConnectInitiationResult
 
@@ -87,4 +117,69 @@ interface SeerrRepository {
     ): SeerrAuthenticationResult
 
     suspend fun validateSession(session: SeerrSession): SeerrSessionValidationResult
+}
+
+interface SeerrApiRepository {
+    suspend fun discoverMovies(
+        session: SeerrSession,
+        page: Int = 1,
+        language: String? = null,
+    ): SeerrApiResult<SeerrPagedResult<SeerrMediaSummary>>
+
+    suspend fun discoverSeries(
+        session: SeerrSession,
+        page: Int = 1,
+        language: String? = null,
+    ): SeerrApiResult<SeerrPagedResult<SeerrMediaSummary>>
+
+    suspend fun discoverTrending(
+        session: SeerrSession,
+        page: Int = 1,
+        language: String? = null,
+        mediaType: SeerrMediaType = SeerrMediaType.ALL,
+        timeWindow: SeerrTimeWindow = SeerrTimeWindow.DAY,
+    ): SeerrApiResult<SeerrPagedResult<SeerrMediaSummary>>
+
+    suspend fun search(
+        session: SeerrSession,
+        query: String,
+        page: Int = 1,
+        language: String? = null,
+    ): SeerrApiResult<SeerrPagedResult<SeerrMediaSummary>>
+
+    suspend fun movieDetails(
+        session: SeerrSession,
+        tmdbId: Long,
+        language: String? = null,
+    ): SeerrApiResult<SeerrMovieDetails>
+
+    suspend fun tvDetails(
+        session: SeerrSession,
+        tmdbId: Long,
+        language: String? = null,
+    ): SeerrApiResult<SeerrTvDetails>
+
+    suspend fun requests(
+        session: SeerrSession,
+        take: Int? = null,
+        skip: Int? = null,
+        filter: SeerrRequestFilter? = null,
+        sort: SeerrRequestSort = SeerrRequestSort.ADDED,
+        sortDirection: SeerrSortDirection = SeerrSortDirection.DESCENDING,
+        requestedBy: Long? = null,
+        mediaType: SeerrMediaType = SeerrMediaType.ALL,
+    ): SeerrApiResult<SeerrRequestPage>
+
+    suspend fun createMovieRequest(
+        session: SeerrSession,
+        tmdbId: Long,
+        is4k: Boolean = false,
+    ): SeerrApiResult<SeerrMediaRequest>
+
+    suspend fun createTvRequest(
+        session: SeerrSession,
+        tmdbId: Long,
+        seasons: SeerrTvSeasonSelection,
+        is4k: Boolean = false,
+    ): SeerrApiResult<SeerrMediaRequest>
 }

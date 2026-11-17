@@ -2,10 +2,9 @@
 
 ## Current status
 
-**P04.1 PASS on `dev`** — Seerr 3.5.2 authentication now uses Jellyfin Quick
-Connect to create an encrypted, user-scoped cookie session; `/auth/me` validates
-the connected user and the server-provided permission mask independently of the
-Jellyfin app session.
+**P04.2 PASS on `dev`** — the focused Seerr 3.5.2 API client now exposes typed
+discovery, search, media-detail, request-state and future request-creation calls
+over the encrypted user-scoped `connect.sid` session from P04.1.
 
 ## Completed tasks
 
@@ -53,6 +52,36 @@ Jellyfin app session.
 - `P04.1` — Seerr Jellyfin Quick Connect, encrypted independent cookie-session
   restoration, current-user validation, and per-media request permission
   interpretation.
+- `P04.2` — focused typed Seerr discovery, search, movie/series details,
+  request-state listing and movie/series request payloads over the existing
+  user session.
+
+## P04.2 verification — PASS (2026-11-17)
+
+- The official Seerr 3.5.2 OpenAPI contract was used directly. The implemented
+  surface is limited to `GET /discover/movies`, `/discover/tv`,
+  `/discover/trending`, `/search`, `/movie/{movieId}`, `/tv/{tvId}` and
+  `/request`, plus `POST /request` preparation for P04.4.
+- App-owned models cover paged movie, series and person summaries; movie and
+  series details; genres and seasons; TMDb/TVDb identity; availability and
+  request status; request pages, filters and sorting; media types, trending
+  windows and selected/all-season request payloads. Unknown response fields are
+  ignored without generating the rest of the API contract.
+- Authentication remains isolated behind the unchanged P04.1 repository
+  interface. The new API interface shares the same OkHttp implementation and
+  sends only the stored `connect.sid` cookie; it adds no authentication flow,
+  API key, identity override or sensitive logging.
+- HTTP fixtures verify exact methods, paths, encoded pagination/search/media
+  filters, TMDb IDs, cookies, JSON request bodies, mixed-result and detail
+  parsing, embedded request states, local expiry, and distinct 401, 403, 404,
+  5xx and malformed-response mapping. `POST /request` was exercised only
+  against MockWebServer; no real media request was submitted.
+- Targeted P04.1/P04.2 tests passed together. A fresh full
+  `:app:testDebugUnitTest :app:assembleDebug --rerun-tasks` run passed 171 unit
+  tests with zero failures or errors and produced the debug APK. No TV test was
+  performed because P04.2 changes no user-visible behavior.
+- Remaining scope: P04.3 owns discovery/search/detail UI and state integration;
+  P04.4 owns permission-gated real request submission and user feedback.
 
 ## P04.1 verification — PASS (2026-11-17)
 

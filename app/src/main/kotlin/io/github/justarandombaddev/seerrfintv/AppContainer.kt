@@ -11,6 +11,7 @@ import io.github.justarandombaddev.seerrfintv.data.settings.DataStoreSeerrSettin
 import io.github.justarandombaddev.seerrfintv.data.settings.DataStoreServerSettingsRepository
 import io.github.justarandombaddev.seerrfintv.data.settings.serverSettingsDataStore
 import io.github.justarandombaddev.seerrfintv.domain.repository.JellyfinRepository
+import io.github.justarandombaddev.seerrfintv.domain.repository.SeerrApiRepository
 import io.github.justarandombaddev.seerrfintv.domain.repository.SeerrRepository
 import io.github.justarandombaddev.seerrfintv.domain.repository.SeerrSettingsRepository
 import io.github.justarandombaddev.seerrfintv.domain.repository.ServerSettingsRepository
@@ -61,7 +62,11 @@ class AppContainer(context: Context) {
             .callTimeout(20, TimeUnit.SECONDS)
             .build()
 
-    val seerrRepository: SeerrRepository = OkHttpSeerrRepository(seerrHttpClient)
+    private val seerrClient = OkHttpSeerrRepository(seerrHttpClient)
+
+    val seerrRepository: SeerrRepository = seerrClient
+
+    val seerrApiRepository: SeerrApiRepository = seerrClient
 
     val seerrSettingsRepository: SeerrSettingsRepository =
         DataStoreSeerrSettingsRepository(context.serverSettingsDataStore)

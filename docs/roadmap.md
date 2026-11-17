@@ -40,7 +40,7 @@ Each task has a concrete completion condition. Do not advance to the next milest
 ## P04 — Seerr
 
 - [x] P04.1 Validate supported authentication mode and per-user permissions.
-- [ ] P04.2 Generate or implement typed requests from the current Seerr API contract.
+- [x] P04.2 Generate or implement typed requests from the current Seerr API contract.
 - [ ] P04.3 Discovery, search, details and request state.
 - [ ] P04.4 Submit media requests with the active user's permissions.
 
@@ -56,7 +56,10 @@ Each task has a concrete completion condition. Do not advance to the next milest
 
 ## P06 — Advanced playback
 
-- [ ] P06.1 Direct play / remux / transcode capabilities.
+- [ ] P06.1 Complete advanced playback compatibility:
+      validate Direct Stream/remux/transcode on real media,
+      refine HDR/Dolby Vision and codec constraints,
+      and document the device compatibility matrix.
 - [ ] P06.2 Audio and subtitle track selection.
 - [ ] P06.3 Episode progression, playback failures and adaptive behavior.
 
