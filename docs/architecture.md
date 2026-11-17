@@ -64,10 +64,12 @@ models. Jellyfin and Seerr sessions remain independent.
 ### Seerr
 
 Use a small typed OkHttp + kotlinx.serialization client for only the documented
-MVP endpoints. Keep the `/api/v1` contract at the client boundary. Prefer a
-user-scoped cookie session using a login method enabled by the deployment;
-never ship the administrator `X-Api-Key`. Verify the authenticated user and
-permissions before exposing request actions.
+MVP endpoints. Keep the `/api/v1` contract at the client boundary. On Jellyfin
+deployments, authenticate through Seerr's Jellyfin Quick Connect flow and keep
+the returned user-scoped `connect.sid` cookie in encrypted storage; never ship
+the administrator `X-Api-Key`. Validate every restored or newly created session
+through `/auth/me`, and use its server-provided permission mask before exposing
+request actions.
 
 Do not add an OpenAPI generator initially. Reconsider only if handwritten
 endpoint drift or model volume becomes costly.

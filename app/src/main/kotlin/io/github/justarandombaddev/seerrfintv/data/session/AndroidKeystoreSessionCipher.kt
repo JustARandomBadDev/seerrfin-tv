@@ -8,7 +8,9 @@ import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 
-internal class AndroidKeystoreSessionCipher : SessionCipher {
+internal class AndroidKeystoreSessionCipher(
+    private val keyAlias: String = JELLYFIN_KEY_ALIAS,
+) : SessionCipher {
     override fun encrypt(
         plaintext: ByteArray,
         associatedData: ByteArray,
@@ -38,12 +40,12 @@ internal class AndroidKeystoreSessionCipher : SessionCipher {
 
     private fun getOrCreateKey(): SecretKey {
         val keyStore = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
-        (keyStore.getKey(KEY_ALIAS, null) as? SecretKey)?.let { return it }
+        (keyStore.getKey(keyAlias, null) as? SecretKey)?.let { return it }
 
         val generator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, ANDROID_KEYSTORE)
         generator.init(
             KeyGenParameterSpec.Builder(
-                KEY_ALIAS,
+                keyAlias,
                 KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT,
             ).setBlockModes(KeyProperties.BLOCK_MODE_GCM)
                 .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
@@ -56,7 +58,7 @@ internal class AndroidKeystoreSessionCipher : SessionCipher {
 
     private companion object {
         const val ANDROID_KEYSTORE = "AndroidKeyStore"
-        const val KEY_ALIAS = "seerrfin_tv_jellyfin_session_v1"
+        const val JELLYFIN_KEY_ALIAS = "seerrfin_tv_jellyfin_session_v1"
         const val TRANSFORMATION = "AES/GCM/NoPadding"
         const val KEY_SIZE_BITS = 256
         const val GCM_TAG_LENGTH_BITS = 128

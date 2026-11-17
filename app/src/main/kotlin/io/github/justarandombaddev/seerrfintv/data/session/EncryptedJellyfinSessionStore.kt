@@ -103,7 +103,7 @@ private class SharedPreferencesEncryptedSessionStorage(
     }
 }
 
-private object EncryptedSessionRecord {
+internal object EncryptedSessionRecord {
     private const val PREFIX = "v1"
     private const val PART_COUNT = 3
 

@@ -90,18 +90,21 @@ device capabilities; do not infer direct-play or transcoding URLs.
 ## D005 — Seerr integration and authentication
 
 **Decision.** Implement only the documented `/api/v1` subset needed by the
-MVP using OkHttp and kotlinx.serialization. Use a user-scoped cookie session
-from a login mode enabled by the target deployment, then validate it with the
-documented current-user endpoint. Never embed or request the administrator API
-key.
+MVP using OkHttp and kotlinx.serialization. For the target Jellyfin deployment,
+use Seerr's Jellyfin Quick Connect endpoints to create a user-scoped
+`connect.sid` session, then validate it with `GET /auth/me`. Never embed or
+request the administrator API key.
 
 **Rationale.** The OpenAPI specification supports cookie and API-key auth, but
 the global API key is privileged. A small handwritten client is easier to
 review than generating thousands of unused models.
 
 **Alternatives rejected.** No OpenAPI generator until endpoint drift or model
-volume demonstrates a maintenance benefit. Exact login mode remains a P04.1
-deployment check rather than an assumption in bootstrap.
+volume demonstrates a maintenance benefit. Direct Jellyfin username/password
+and local Seerr email/password login are valid current endpoints but require
+entering credentials on TV; Plex login does not match the deployment. The
+global `X-Api-Key`, even with `X-API-User`, remains prohibited because it is a
+privileged administrator credential rather than a user session.
 
 ## D006 — State, storage, and errors
 
@@ -154,4 +157,3 @@ background playback becomes a requirement.
 ## Pending decisions
 
 - Project license before public distribution.
-- Exact Seerr login mode supported by the target deployment in P04.1.

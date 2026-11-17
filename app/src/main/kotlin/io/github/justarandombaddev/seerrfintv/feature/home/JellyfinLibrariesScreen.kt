@@ -41,6 +41,7 @@ fun JellyfinLibrariesScreen(
     onLibrarySelected: (String?) -> Unit,
     onItemActivated: (JellyfinCatalogItem) -> Unit,
     onSearch: () -> Unit,
+    onSeerr: () -> Unit,
     onItemFocused: (String) -> Unit,
 ) {
     val initialFocusRequester = remember { FocusRequester() }
@@ -134,6 +135,9 @@ fun JellyfinLibrariesScreen(
                                     },
                             ) {
                                 Text(stringResource(R.string.home_search))
+                            }
+                            Button(onClick = onSeerr) {
+                                Text(stringResource(R.string.home_seerr))
                             }
                             LibraryFilters(
                                 libraries = state.libraries,

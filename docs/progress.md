@@ -2,9 +2,10 @@
 
 ## Current status
 
-**P03.4 PASS on `dev`** — Jellyfin playback negotiation now uses the actual
-Android/Media3 capabilities of the TV; compatible real MKV media use Direct
-Play instead of the former systematic HLS transcode fallback.
+**P04.1 PASS on `dev`** — Seerr 3.5.2 authentication now uses Jellyfin Quick
+Connect to create an encrypted, user-scoped cookie session; `/auth/me` validates
+the connected user and the server-provided permission mask independently of the
+Jellyfin app session.
 
 ## Completed tasks
 
@@ -49,6 +50,59 @@ Play instead of the former systematic HLS transcode fallback.
 - `P03.4` — hardware-aware Jellyfin DeviceProfile construction, bounded codec,
   container, subtitle, channel and bitrate declarations, Direct Play-first
   selection, HLS remux/transcode fallback, and real Android TV validation.
+- `P04.1` — Seerr Jellyfin Quick Connect, encrypted independent cookie-session
+  restoration, current-user validation, and per-media request permission
+  interpretation.
+
+## P04.1 verification — PASS (2026-11-17)
+
+- The current stable Seerr 3.5.2 source and OpenAPI contract expose local,
+  Jellyfin password, Plex token and Jellyfin Quick Connect login flows. The
+  target deployment reports Jellyfin as its media server with media-server
+  login enabled. Quick Connect was selected for TV because it avoids entering
+  or persisting a password while still creating Seerr's normal user session.
+- The implemented flow uses only the documented
+  `/auth/jellyfin/quickconnect/initiate`, `/check`, `/authenticate` and
+  `/auth/me` endpoints. It captures only the `connect.sid` cookie, stores its
+  value with Android-Keystore AES-GCM under Seerr-specific storage/key/AAD, and
+  never uses `X-Api-Key` or `X-API-User`. Jellyfin and Seerr session records are
+  cryptographically and structurally independent.
+- `/auth/me` is required after both authentication and restoration. Missing
+  cookies, missing permission masks, invalid responses and HTTP 401/403 are not
+  accepted as authenticated sessions. Network, TLS, server, access-denied,
+  expiry, timeout and secure-storage failures map to app-owned states without
+  logging URLs, identities, secrets or cookie values.
+- Permission interpretation matches Seerr 3.5.2 server enforcement: `ADMIN`
+  overrides all checks; general `REQUEST` or media-specific `REQUEST_MOVIE` /
+  `REQUEST_TV` enables standard requests; general or media-specific 4K bits
+  enable their corresponding 4K requests. The TV screen displays each granted
+  or denied capability explicitly and does not infer authorization from UI
+  state alone.
+- A real Quick Connect flow against the explicitly authorized Seerr 3.5.2
+  instance completed with a normal user session. `/auth/me` returned permission
+  mask `32`, confirming standard movie and series requests and no 4K request
+  permission. The temporary cookie jar was removed immediately and no server
+  address, user identity, cookie or Quick Connect secret was written to the
+  repository.
+- RED/GREEN tests cover the exact HTTP methods/paths/payloads, cookie capture,
+  `/auth/me` validation, permission masks, encrypted-session separation,
+  restoration/expiry, polling, storage failure, error mapping, redaction and
+  D-pad URL-field behavior. The full debug unit suite passed 162 tests with zero
+  failures or errors, and `:app:assembleDebug` succeeded.
+- The current APK was installed with `-r` on the authorized Android 14
+  `Smart_TV_Pro`. From the restored Jellyfin catalogue, D-pad navigation focused
+  and opened Seerr, the AZERTY TV keyboard entered the exact configured address,
+  D-pad Down focused the Quick Connect action, and Center displayed a real code.
+  After manual Jellyfin authorization, the TV detected the session automatically
+  and rendered the verified mask `32`: standard movie and series requests
+  allowed, both 4K request types denied.
+- Back returned to the still-loaded Jellyfin catalogue. After force-stop and a
+  fresh activity launch, Jellyfin restored without login and opening Seerr
+  restored the authenticated user through `/auth/me` without a new Quick Connect
+  challenge. The return action held focus, the on-device Seerr preference record
+  contained neither the server address nor `connect.sid` in plaintext, and final
+  process-scoped logs contained no crash or sensitive marker. All temporary UI
+  dumps and screenshots containing private data were removed.
 
 ## P03.4 verification — PASS (2026-11-16)
 
@@ -482,5 +536,5 @@ will be checked against the target deployment.
 
 ## Next task
 
-`P04.1` — validate the supported Seerr authentication mode and per-user
-permissions. It has not been started and requires a new explicit request.
+`P04.2` — implement the next typed subset of the current Seerr API contract. It
+has not been started and requires a new explicit request.

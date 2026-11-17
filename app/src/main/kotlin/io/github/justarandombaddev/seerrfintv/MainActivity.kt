@@ -5,6 +5,9 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import io.github.justarandombaddev.seerrfintv.feature.connect.ServerConnectionScreen
@@ -22,6 +25,8 @@ import io.github.justarandombaddev.seerrfintv.feature.login.JellyfinLoginStatus
 import io.github.justarandombaddev.seerrfintv.feature.login.JellyfinLoginViewModel
 import io.github.justarandombaddev.seerrfintv.feature.player.PlayerRoute
 import io.github.justarandombaddev.seerrfintv.feature.search.JellyfinSearchScreen
+import io.github.justarandombaddev.seerrfintv.feature.seerr.SeerrAuthScreen
+import io.github.justarandombaddev.seerrfintv.feature.seerr.SeerrAuthViewModel
 import io.github.justarandombaddev.seerrfintv.ui.theme.SeerrfinTheme
 
 class MainActivity : ComponentActivity() {
@@ -48,6 +53,7 @@ class MainActivity : ComponentActivity() {
                         )
                     }
                 val librariesState by librariesViewModel.uiState.collectAsStateWithLifecycle()
+                var showSeerrAuth by rememberSaveable { mutableStateOf(false) }
 
                 LaunchedEffect(state.status) {
                     if (state.status == ServerConnectionStatus.Connected) {
@@ -84,6 +90,26 @@ class MainActivity : ComponentActivity() {
                         onResultFocused = librariesViewModel::rememberSearchFocus,
                         onResultActivated = librariesViewModel::openDetails,
                         onBack = librariesViewModel::closeSearch,
+                    )
+                } else if (librariesState.status == LibrariesStatus.Success && showSeerrAuth) {
+                    val seerrAuthViewModel =
+                        viewModel<SeerrAuthViewModel>(key = "seerr-auth") {
+                            SeerrAuthViewModel(
+                                repository = container.seerrRepository,
+                                sessionStore = container.seerrSessionStore,
+                                settingsRepository = container.seerrSettingsRepository,
+                                urlNormalizer = container.serverUrlNormalizer,
+                            )
+                        }
+                    val seerrState by seerrAuthViewModel.uiState.collectAsStateWithLifecycle()
+                    SeerrAuthScreen(
+                        state = seerrState,
+                        onServerUrlChanged = seerrAuthViewModel::onServerUrlChanged,
+                        onConnect = seerrAuthViewModel::connect,
+                        onBack = {
+                            seerrAuthViewModel.stop()
+                            showSeerrAuth = false
+                        },
                     )
                 } else {
                     when (librariesState.status) {
@@ -147,6 +173,7 @@ class MainActivity : ComponentActivity() {
                                 onLibrarySelected = librariesViewModel::selectLibrary,
                                 onItemActivated = librariesViewModel::openDetails,
                                 onSearch = librariesViewModel::openSearch,
+                                onSeerr = { showSeerrAuth = true },
                                 onItemFocused = librariesViewModel::rememberHomeFocus,
                             )
                     }
